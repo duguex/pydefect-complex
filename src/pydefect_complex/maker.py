@@ -27,7 +27,11 @@ if TYPE_CHECKING:
 from .core import ComplexDefect, _get_element
 from .structure import ComplexDefectEntry
 from .graph import HostGraph, ComplexDefectGraph
-from .enumerate import enumerate_sites, generate_structure
+from .enumerate import (
+    ComplexDefectEnumerator,
+    assign_compositions,
+    generate_all_entries,
+)
 from .symmetry import deduplicate
 from .io import write_all, write_complex_defect_in_yaml, merge_defect_in
 
@@ -37,9 +41,18 @@ logger = logging.getLogger(__name__)
 class ComplexDefectMaker:
     """Generate complex defect structures via geometry-first enumeration.
 
-    Phase 1: Enumerate all N-node geometric configurations from HostGraph.
-    Phase 2: For each defect composition, assign defect types to compatible
-             geometric configurations and generate structures.
+    Uses Apriori-style incremental enumeration (PLAN-C):
+      1. Enumerate geometrically unique N-node site configurations.
+      2. Assign defect compositions by wyckoff label matching.
+      3. Generate structures and deduplicate.
+
+    Public API:
+        maker.make_pair(d1, d2)        → generate one specific pair
+        maker.make_complex([d1, d2])   → generate one specific complex
+        maker.make_all_pairs()         → all N=2 complexes
+        maker.make_all_n_body(n=3)     → all N-body complexes
+        maker.enumerate_geometries(N_max) → raw geometry enumeration
+        maker.write(entries, dir)      → write pydefect-compatible output
     """
 
     def __init__(
@@ -61,6 +74,11 @@ class ComplexDefectMaker:
         self._defect_in = {d.name: d.charges for d in self._single_defects}
 
         self.host_graph = HostGraph.from_supercell_info(supercell_info)
+        self.enumerator = ComplexDefectEnumerator(
+            self.host_graph,
+            max_distance=max_distance,
+            min_distance=min_distance,
+        )
 
     # --- Class methods ---
 
@@ -91,7 +109,19 @@ class ComplexDefectMaker:
     def defect_pairs(self) -> list[tuple]:
         return list(itertools.combinations_with_replacement(self._single_defects, 2))
 
-    # --- Generation ---
+    # --- Geometry enumeration (public) ---
+
+    def enumerate_geometries(
+        self, N_max: int, eps: float = 0.1,
+    ) -> dict[int, list[ComplexDefectGraph]]:
+        """Enumerate geometrically unique N-node subgraphs.
+
+        Returns {2: [G, ...], 3: [G, ...], ..., N_max: [...]}.
+        Cached — repeated calls with higher N_max reuse prior results.
+        """
+        return self.enumerator.enumerate(N_max, eps)
+
+    # --- Defect generation ---
 
     def make_complex(
         self, defect_names: list[str],
@@ -103,7 +133,51 @@ class ComplexDefectMaker:
 
         defects = [self._defect_map[n] for n in defect_names]
         cd = ComplexDefect.from_defects(defects)
-        return self._generate_for_composition(cd, max_distance, min_distance)
+
+        # Use enumerator for geometry, then assign this specific composition
+        N = cd.n_defects
+        geo = self.enumerator.enumerate(N)
+        geometries = geo.get(N, [])
+
+        entries = []
+        for G in geometries:
+            # Check wyckoff match between geometry and defect out_atoms
+            if sorted(G.wyckoffs) == sorted(d.out_atom for d in cd.defects):
+                try:
+                    from .enumerate import generate_structure
+                    struct = generate_structure(
+                        self.host_graph, self.supercell_info, G, cd,
+                    )
+                except (ValueError, IndexError):
+                    continue
+
+                defect_coords = tuple(
+                    tuple(float(x) for x in self.host_graph.nodes[nid].frac_coord)
+                    for nid in G.host_node_ids
+                )
+
+                edge_map = {}
+                for i, j, v in G.edges:
+                    edge_map[(i, j)] = float(np.linalg.norm(v))
+                chain_dists = []
+                for k in range(1, N):
+                    d = edge_map.get((k - 1, k), edge_map.get((k, k - 1), 0.0))
+                    chain_dists.append(d)
+
+                entries.append(ComplexDefectEntry(
+                    name=cd.name,
+                    complex_defect=cd,
+                    site_path=tuple(d.out_atom for d in cd.defects),
+                    distances=tuple(chain_dists),
+                    structure=struct,
+                    defect_coords=defect_coords,
+                    graph=G,
+                ))
+
+        # Deduplicate + assign index names
+        if entries:
+            entries = deduplicate(entries, self.host_graph, self.max_distance)
+        return entries
 
     def make_pair(self, d1, d2, max_distance=None, min_distance=None):
         return self.make_complex([d1, d2], max_distance, min_distance)
@@ -111,87 +185,43 @@ class ComplexDefectMaker:
     def make_all_n_body(
         self, n=2, max_distance=None, min_distance=None, deduplicate_symmetry=True,
     ) -> list[ComplexDefectEntry]:
-        """Generate all N-body complex defect combinations."""
+        """Generate all N-body complex defect combinations.
+
+        Uses the new Apriori pipeline:
+          1. Enumerate unique geometries for order n.
+          2. Assign all compatible defect compositions.
+          3. Deduplicate across compositions.
+        """
         if n < 2:
             raise ValueError(f"n must be >= 2, got {n}")
 
         max_d = max_distance if max_distance is not None else self.max_distance
         min_d = min_distance if min_distance is not None else self.min_distance
 
-        all_entries = []
-        for combo in itertools.combinations_with_replacement(self._single_defects, n):
-            cd = ComplexDefect.from_defects(list(combo))
-            entries = self._generate_for_composition(cd, max_d, min_d)
-            if entries:
-                logger.info("%s: %d entries", cd.name, len(entries))
-            all_entries.extend(entries)
+        # Adjust enumerator params if needed
+        if max_d != self.enumerator.max_distance or min_d != self.enumerator.min_distance:
+            self.enumerator = ComplexDefectEnumerator(
+                self.host_graph, max_distance=max_d, min_distance=min_d,
+            )
 
-        logger.info("Total entries before dedup: %d", len(all_entries))
+        entries = generate_all_entries(
+            self.enumerator, self.supercell_info,
+            self._single_defects, N_max=n,
+        )
 
-        if deduplicate_symmetry:
-            all_entries = deduplicate(all_entries, self.host_graph, max_d)
-            logger.info("After dedup: %d entries", len(all_entries))
+        logger.info("Total entries before dedup: %d", len(entries))
 
-        return all_entries
+        if deduplicate_symmetry and entries:
+            entries = deduplicate(entries, self.host_graph, max_d)
+            logger.info("After dedup: %d entries", len(entries))
+
+        # Filter to only N-body entries (generate_all_entries includes all orders ≤ N)
+        entries = [e for e in entries if e.complex_defect.n_defects == n]
+
+        return entries
 
     def make_all_pairs(self, max_distance=None, min_distance=None, deduplicate_symmetry=True):
         return self.make_all_n_body(2, max_distance, min_distance, deduplicate_symmetry)
-
-    # --- Internal ---
-
-    def _generate_for_composition(
-        self, cd: ComplexDefect, max_d: float, min_d: float,
-    ) -> list[ComplexDefectEntry]:
-        """Phase 1+2: enumerate geometries, assign defect types, build structures."""
-        # Wyckoff constraints from the defect types
-        wyckoff_constraints = [d.out_atom for d in cd.defects]
-        # First defect's out_atom fixes the anchor
-        # (e.g. "C1" means we start from a C1 site)
-        # For subsequent defects with same out_atom, they can be at any
-        # symmetry-inequivalent site of the same wyckoff type
-        # → all match the same wyckoff label from HostGraph
-
-        geoms = enumerate_sites(
-            self.host_graph,
-            n=cd.n_defects,
-            wyckoff_constraints=wyckoff_constraints,
-            max_distance=max_d,
-            min_distance=min_d,
-        )
-        if not geoms:
-            return []
-
-        entries = []
-        for geom in geoms:
-            # Build structure from geometry + defect composition
-            struct = generate_structure(
-                self.host_graph, self.supercell_info, geom, cd,
-            )
-            # Store defect coords for pydefect compatibility
-            defect_coords = tuple(
-                tuple(float(x) for x in self.host_graph.nodes[nid].frac_coord)
-                for nid in geom.host_node_ids
-            )
-            # Compute chain distances from edges
-            edge_map = {}
-            for i, j, v in geom.edges:
-                edge_map[(i, j)] = float(np.linalg.norm(v))
-            chain_dists = []
-            for k in range(1, cd.n_defects):
-                d = edge_map.get((k - 1, k), edge_map.get((k, k - 1), 0.0))
-                chain_dists.append(d)
-
-            entries.append(ComplexDefectEntry(
-                name=cd.name,
-                complex_defect=cd,
-                site_path=tuple(wyckoff_constraints),
-                distances=tuple(chain_dists),
-                structure=struct,
-                defect_coords=defect_coords,
-                graph=geom,
-            ))
-
-        return entries
 
     # --- Output ---
 
