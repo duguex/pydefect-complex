@@ -5,11 +5,14 @@ Uses pydefect naming: vacancies are "Va_C1", substitutions are "N_C1".
 """
 
 import os
+import time
 import pytest
 
 pytest.importorskip("pydefect")
 
-from pydefect_complex import ComplexDefectMaker
+from pydefect_complex import ComplexDefectMaker, ComplexDefectEnumerator
+from pydefect_complex.graph import HostGraph
+from pydefect_complex.enumerate import assign_compositions
 
 
 class TestMakerFromSupercellInfo:
@@ -94,3 +97,73 @@ class TestMakerRepr:
         r = repr(maker)
         assert "ComplexDefectMaker" in r
         assert "n_defects" in r
+
+
+# ---------------------------------------------------------------------------
+# PLAN-C: ComplexDefectEnumerator + N-body tests
+# ---------------------------------------------------------------------------
+
+
+class TestEnumerator:
+
+    def test_enumerate_2(self, diamond_supercell_info):
+        maker = ComplexDefectMaker(diamond_supercell_info)
+        geo = maker.enumerate_geometries(N_max=2)
+        assert 2 in geo
+        assert len(geo[2]) >= 1, "Should find at least one N=2 geometry"
+        for g in geo[2]:
+            assert g.n_defects == 2
+            assert len(g.edges) == 1
+
+    def test_enumerate_3(self, diamond_supercell_info):
+        maker = ComplexDefectMaker(diamond_supercell_info)
+        geo = maker.enumerate_geometries(N_max=3)
+        assert 3 in geo
+        assert len(geo[3]) >= 1, "Should find at least one N=3 geometry"
+        for g in geo[3]:
+            assert g.n_defects == 3
+            assert len(g.edges) >= 2
+
+    def test_cache_reuse(self, diamond_supercell_info):
+        maker = ComplexDefectMaker(diamond_supercell_info)
+        geo2 = maker.enumerate_geometries(N_max=2)
+        geo3 = maker.enumerate_geometries(N_max=3)
+        # N=2 results should be the same cached objects
+        assert geo2[2] is geo3[2]
+
+    def test_assign_compositions(self, diamond_supercell_info):
+        maker = ComplexDefectMaker(diamond_supercell_info)
+        geo = maker.enumerate_geometries(N_max=2)
+        pairs = assign_compositions(geo[2], maker.single_defects)
+        assert len(pairs) > 0
+        for G, cd in pairs:
+            assert G.n_defects == cd.n_defects
+            assert sorted(G.wyckoffs) == sorted(d.out_atom for d in cd.defects)
+
+    def test_make_all_n_body_3(self, diamond_supercell_info):
+        maker = ComplexDefectMaker(
+            diamond_supercell_info, dopants=["N", "B"], max_distance=4.0,
+        )
+        entries = maker.make_all_n_body(n=3)
+        assert isinstance(entries, list)
+        for e in entries:
+            assert e.complex_defect.n_defects == 3
+            assert e.structure is not None
+
+    def test_performance_n2(self, diamond_supercell_info):
+        """N=2 enumeration completes in under 2 seconds."""
+        maker = ComplexDefectMaker(diamond_supercell_info)
+        t0 = time.time()
+        maker.make_all_pairs()
+        t1 = time.time()
+        assert t1 - t0 < 2.0, f"N=2 took {t1 - t0:.2f}s"
+
+    def test_performance_n3(self, diamond_supercell_info):
+        """N=3 enumeration completes in under 20 seconds."""
+        maker = ComplexDefectMaker(
+            diamond_supercell_info, dopants=["N", "B"], max_distance=4.0,
+        )
+        t0 = time.time()
+        maker.make_all_n_body(n=3)
+        t1 = time.time()
+        assert t1 - t0 < 20.0, f"N=3 took {t1 - t0:.2f}s"
