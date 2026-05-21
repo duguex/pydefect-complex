@@ -338,6 +338,133 @@ class ComplexDefectEnumerator:
 
 
 # ---------------------------------------------------------------------------
+# Composition assignment: match geometries to defect compositions
+# ---------------------------------------------------------------------------
+
+
+def assign_compositions(
+    geometries: list[ComplexDefectGraph],
+    single_defects: list,
+) -> list[tuple[ComplexDefectGraph, "ComplexDefect"]]:
+    """Match geometries to compatible defect compositions by wyckoff label.
+
+    For each geometry G, generates all N-defect combinations whose
+    out_atom multiset matches G's wyckoff multiset, then pairs them.
+
+    Filter rules (same as old structure.py):
+      - Only the first defect can be interstitial.
+      - Interstitial insert element must differ from next defect's host element.
+
+    Args:
+        geometries: List of unique ComplexDefectGraph objects.
+        single_defects: List of pydefect SimpleDefect objects.
+
+    Returns:
+        List of (ComplexDefectGraph, ComplexDefect) pairs.
+    """
+    import itertools
+    from .core import ComplexDefect as CD, _is_interstitial
+
+    results = []
+    by_n = {}
+    for G in geometries:
+        by_n.setdefault(G.n_defects, []).append(G)
+
+    for n, geoms in sorted(by_n.items()):
+        # For each N, try all combinations of N single defects
+        for combo in itertools.combinations_with_replacement(single_defects, n):
+            combo = list(combo)
+
+            # Filter: only first can be interstitial
+            if any(_is_interstitial(d.out_atom) for d in combo[1:]):
+                continue
+
+            # Filter: interstitial + element cycling (first layer only)
+            if _is_interstitial(combo[0].out_atom):
+                if (_get_element(combo[1].out_atom)
+                        == combo[0].in_atom):
+                    continue
+
+            # Build the multiset of out_atom labels for this combo
+            combo_wyckoffs = sorted(d.out_atom for d in combo)
+
+            for G in geoms:
+                # Multiset match: G.wyckoffs vs combo out_atoms
+                if sorted(G.wyckoffs) == combo_wyckoffs:
+                    # Defect ordering must match geometry node ordering
+                    # For now: assign in sorted order (both are sorted by wyckoff)
+                    # TODO: support defect permutation optimization
+                    cd = CD.from_defects(combo)
+                    results.append((G, cd))
+
+    return results
+
+
+def generate_all_entries(
+    enumerator: "ComplexDefectEnumerator",
+    supercell_info: "SupercellInfo",
+    single_defects: list,
+    N_max: int,
+    eps: float = 0.1,
+) -> list["ComplexDefectEntry"]:
+    """Full pipeline: enumerate geometries, assign compositions, generate structures.
+
+    Args:
+        enumerator: Configured ComplexDefectEnumerator.
+        supercell_info: pydefect SupercellInfo.
+        single_defects: List of pydefect SimpleDefect objects.
+        N_max: Maximum number of defect components.
+        eps: Tolerance for geometric equivalence (Å).
+
+    Returns:
+        List of ComplexDefectEntry objects ready for writing.
+    """
+    from .structure import ComplexDefectEntry
+    import numpy as np
+
+    all_geometries = enumerator.enumerate(N_max, eps)
+
+    entries = []
+    for n, geoms in all_geometries.items():
+        pairs = assign_compositions(geoms, single_defects)
+        for G, cd in pairs:
+            try:
+                struct = generate_structure(
+                    enumerator.host_graph, supercell_info, G, cd,
+                )
+            except (ValueError, IndexError) as e:
+                # Skip geometries that can't be structurally realized
+                continue
+
+            # Build defect_coords from host node positions
+            defect_coords = tuple(
+                tuple(float(x) for x in enumerator.host_graph.nodes[nid].frac_coord)
+                for nid in G.host_node_ids
+            )
+
+            # Compute chain distances from edges
+            edge_map = {}
+            for i, j, v in G.edges:
+                edge_map[(i, j)] = float(np.linalg.norm(v))
+            chain_dists = []
+            for k in range(1, cd.n_defects):
+                d = edge_map.get((k - 1, k), edge_map.get((k, k - 1), 0.0))
+                chain_dists.append(d)
+
+            entries.append(ComplexDefectEntry(
+                name=cd.name,
+                complex_defect=cd,
+                site_path=tuple(d.out_atom for d in cd.defects),
+                distances=tuple(chain_dists),
+                structure=struct,
+                defect_coords=defect_coords,
+                graph=G,
+            ))
+
+    return entries
+
+
+# ---------------------------------------------------------------------------
 # Structure generation from graph + composition (unchanged)
 # ---------------------------------------------------------------------------
 
