@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from pydefect.input_maker.defect import SimpleDefect
 
 from .core import ComplexDefect, _get_element, _is_interstitial
-from .graph import HostGraph, ComplexDefectGraph, _edge_list
+from .graph import HostGraph, ComplexDefectGraph, _edge_list, equivalent
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +178,167 @@ def _recurse_sym(
 
 
 # ---------------------------------------------------------------------------
-# Structure generation from graph + composition
+# ComplexDefectEnumerator: Apriori-style incremental enumeration
+# ---------------------------------------------------------------------------
+
+
+class ComplexDefectEnumerator:
+    """Enumerate geometrically unique N-body defect site configurations.
+
+    Uses Apriori-style incremental building with online geometric dedup:
+
+    1. N=2: anchor by wyckoff class → neighbor pairs → dedup
+    2. k → k+1: extend unique k-geometries by external neighbors → dedup
+
+    Caches results — calling enumerate(N_max=4) after enumerate(N_max=3)
+    reuses previously computed geometries for orders 2 and 3.
+
+    Attributes:
+        geometries: {2: [G, ...], 3: [G, ...], ...} after enumeration.
+    """
+
+    def __init__(
+        self,
+        host_graph: HostGraph,
+        max_distance: float = 5.0,
+        min_distance: float = 0.3,
+    ):
+        self.host_graph = host_graph
+        self.max_distance = max_distance
+        self.min_distance = min_distance
+        self._cache: dict[int, list[ComplexDefectGraph]] = {}
+
+    @property
+    def geometries(self) -> dict[int, list[ComplexDefectGraph]]:
+        """Currently cached geometries, or empty dict if not yet enumerated."""
+        return dict(self._cache)
+
+    def enumerate(
+        self, N_max: int, eps: float = 0.1,
+    ) -> dict[int, list[ComplexDefectGraph]]:
+        """Enumerate all geometrically unique N-node subgraphs for orders 2..N_max.
+
+        Returns:
+            {2: [ComplexDefectGraph, ...], 3: [...], ..., N_max: [...]}
+
+        Raises:
+            ValueError: if N_max < 2.
+        """
+        if N_max < 2:
+            raise ValueError(f"N_max must be >= 2, got {N_max}")
+
+        # Reuse cache if already computed
+        max_cached = max(self._cache.keys()) if self._cache else 0
+        if max_cached >= N_max:
+            return {k: v for k, v in self._cache.items() if k <= N_max}
+
+        # Bootstrap N=2 if needed
+        if 2 not in self._cache:
+            self._cache[2] = self._enumerate_2(eps)
+
+        # Apriori: k → k+1
+        start_k = max(2, max_cached)
+        for k in range(start_k, N_max):
+            if k + 1 not in self._cache:
+                self._cache[k + 1] = self._extend_order(k, eps)
+
+        return {k: v for k, v in self._cache.items() if k <= N_max}
+
+    # ------------------------------------------------------------------
+    # Internal
+    # ------------------------------------------------------------------
+
+    def _enumerate_2(self, eps: float) -> list[ComplexDefectGraph]:
+        """Generate all unique 2-node geometries from anchor+neighbor pairs.
+
+        Anchors are chosen as one representative per (wyckoff, element) class.
+        """
+        geometries: list[ComplexDefectGraph] = []
+        seen_anchor_classes: set[tuple[str, str]] = set()
+
+        for anchor in self.host_graph.nodes:
+            anchor_class = (anchor.wyckoff, anchor.element)
+            if anchor_class in seen_anchor_classes:
+                continue
+            seen_anchor_classes.add(anchor_class)
+
+            for nbr_id in self.host_graph.neighbors(anchor.id, self.max_distance):
+                nbr = self.host_graph.nodes[nbr_id]
+
+                d = self.host_graph.min_image_distance(
+                    anchor.frac_coord, nbr.frac_coord,
+                )
+                if d < self.min_distance:
+                    continue
+
+                G = ComplexDefectGraph(
+                    host_node_ids=(anchor.id, nbr_id),
+                    wyckoffs=(anchor.wyckoff, nbr.wyckoff),
+                    elements=(anchor.element, nbr.element),
+                    edges=_edge_list(
+                        [tuple(anchor.frac_coord), tuple(nbr.frac_coord)],
+                        self.host_graph,
+                        self.max_distance,
+                    ),
+                )
+
+                if not any(equivalent(G, g, eps) for g in geometries):
+                    geometries.append(G)
+
+        return geometries
+
+    def _extend_order(self, k: int, eps: float) -> list[ComplexDefectGraph]:
+        """Extend unique k-geometries to (k+1)-geometries.
+
+        For each unique G_k, finds all external neighbors, builds
+        G_{k+1} = G_k ∪ {neighbor}, and keeps only geometrically
+        unique results.
+        """
+        result: list[ComplexDefectGraph] = []
+
+        for G_k in self._cache[k]:
+            ext_neighbors = self.host_graph.neighbors_of_set(
+                set(G_k.host_node_ids), self.max_distance,
+            )
+
+            for nbr_id in ext_neighbors:
+                nbr = self.host_graph.nodes[nbr_id]
+
+                # min_distance to ALL existing nodes
+                too_close = any(
+                    self.host_graph.min_image_distance(
+                        nbr.frac_coord,
+                        self.host_graph.nodes[hid].frac_coord,
+                    )
+                    < self.min_distance
+                    for hid in G_k.host_node_ids
+                )
+                if too_close:
+                    continue
+
+                # Build extended graph
+                new_ids = tuple(list(G_k.host_node_ids) + [nbr_id])
+                coords = [
+                    tuple(self.host_graph.nodes[i].frac_coord)
+                    for i in new_ids
+                ]
+                edges = _edge_list(coords, self.host_graph, self.max_distance)
+
+                G_next = ComplexDefectGraph(
+                    host_node_ids=new_ids,
+                    wyckoffs=tuple(list(G_k.wyckoffs) + [nbr.wyckoff]),
+                    elements=tuple(list(G_k.elements) + [nbr.element]),
+                    edges=edges,
+                )
+
+                if not any(equivalent(G_next, g, eps) for g in result):
+                    result.append(G_next)
+
+        return result
+
+
+# ---------------------------------------------------------------------------
+# Structure generation from graph + composition (unchanged)
 # ---------------------------------------------------------------------------
 
 

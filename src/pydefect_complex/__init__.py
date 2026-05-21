@@ -14,12 +14,15 @@ Usage:
 from .maker import ComplexDefectMaker
 from .core import ComplexDefect
 from .structure import ComplexDefectEntry
-from .graph import ComplexDefectGraph, equivalent
+from .graph import HostGraph, ComplexDefectGraph, equivalent
+from .enumerate import ComplexDefectEnumerator
 
 __all__ = [
     "ComplexDefectMaker",
     "ComplexDefect",
     "ComplexDefectEntry",
     "ComplexDefectGraph",
+    "HostGraph",
+    "ComplexDefectEnumerator",
     "equivalent",
 ]
