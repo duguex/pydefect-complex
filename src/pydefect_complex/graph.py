@@ -78,6 +78,38 @@ class HostGraph:
         d -= np.round(d)
         return np.dot(d, self.lattice)
 
+    def min_image_distance(self, fc_a: np.ndarray, fc_b: np.ndarray) -> float:
+        """Cartesian min-image distance (Å) between two fractional coords."""
+        return float(np.linalg.norm(self.min_image_vector(fc_a, fc_b)))
+
+    def neighbors(self, node_id: int, max_distance: float) -> list[int]:
+        """Return all node IDs within max_distance (Å) of node_id.
+
+        Computes exact min-image Cartesian distance (PBC-aware).
+        For typical supercells (~200 atoms) brute-force is microseconds;
+        no KDTree pre-filter needed at this scale.
+        """
+        target = self.nodes[node_id].frac_coord
+        result = []
+        for n in self.nodes:
+            if n.id == node_id:
+                continue
+            if self.min_image_distance(target, n.frac_coord) <= max_distance:
+                result.append(n.id)
+        return result
+
+    def neighbors_of_set(
+        self, node_ids: set[int], max_distance: float,
+    ) -> set[int]:
+        """Return all node IDs within max_distance of ANY node in the set,
+        excluding those already in the set."""
+        ext = set()
+        for nid in node_ids:
+            for nbr in self.neighbors(nid, max_distance):
+                if nbr not in node_ids:
+                    ext.add(nbr)
+        return ext
+
 
 # ---------------------------------------------------------------------------
 # Complex defect graph (geometry only, no defect types)
