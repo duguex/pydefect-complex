@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pydefect-complex"
+version = "0.1.0"
+description = "Systematic complex defect generation compatible with pydefect"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pydefect",
+    "pymatgen",
+    "scipy",
+    "numpy",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
