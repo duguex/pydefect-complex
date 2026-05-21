@@ -51,21 +51,40 @@ class HostGraph:
     def from_supercell_info(cls, supercell_info: "SupercellInfo") -> "HostGraph":
         sc = supercell_info.structure
         sites = supercell_info.sites
+        lattice = sc.lattice.matrix
+        n_atoms = len(sc)
 
-        idx_to_wyckoff = {}
+        # Map each supercell atom to a wyckoff label.
+        # Strategy:
+        #  1. Use pydefect's site name if the atom index is in the
+        #     equivalent_atoms list AND the element matches.
+        #  2. Otherwise derive from element name (e.g., Si → "Si1").
+        #     This handles multi-element systems where pydefect's
+        #     equivalent_atoms use a non-trivial index space.
+        idx_to_wyckoff: dict[int, str] = {}
         for wyckoff, site in sites.items():
             for idx in site.equivalent_atoms:
-                idx_to_wyckoff[idx] = wyckoff
+                if 0 <= idx < n_atoms:
+                    idx_to_wyckoff[idx] = wyckoff
 
         nodes = []
         for i, site in enumerate(sc):
+            w = idx_to_wyckoff.get(i)
+            if w is not None:
+                # Verify: does the site name's expected element match?
+                # (e.g., "Si1" → should be Si)
+                expected_el = w.rstrip("0123456789")
+                if site.species_string != expected_el:
+                    w = None
+            if w is None:
+                w = site.species_string + "1"
             nodes.append(HostNode(
                 id=i,
-                wyckoff=idx_to_wyckoff.get(i, "?"),
+                wyckoff=w,
                 element=site.species_string,
                 frac_coord=site.frac_coords.copy(),
             ))
-        return cls(nodes=nodes, lattice=sc.lattice.matrix)
+        return cls(nodes=nodes, lattice=lattice)
 
     def find_node(self, frac_coord: np.ndarray) -> HostNode:
         d, idx = self._kdtree.query(frac_coord)
