@@ -31,7 +31,7 @@ from .enumerate import (
     generate_all_entries,
 )
 from .symmetry import deduplicate
-from .io import write_all, write_complex_defect_in_yaml, merge_defect_in
+from .io import write_all, write_complex_defect_in_yaml, merge_defect_in, write_summary
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +81,7 @@ class ComplexDefectMaker:
             self.host_graph,
             max_distance=max_distance,
             min_distance=min_distance,
+            pristine_structure=supercell_info.structure,
         )
         self._entry_cache: dict[int, list[ComplexDefectEntry]] = {}
 
@@ -247,6 +248,8 @@ class ComplexDefectMaker:
     def write(self, entries, output_dir=".", merge=False) -> str:
         complex_defect_in = write_all(entries, output_dir, create_defect_json=True)
         yaml_path = write_complex_defect_in_yaml(complex_defect_in, output_dir)
+        summary_path = write_summary(entries, output_dir)
+        logger.info("Summary written to %s", summary_path)
         if merge:
             merge_defect_in(output_dir)
         return yaml_path

@@ -126,13 +126,19 @@ print(f"  distances        = {e.distances}")
 print(f"  defect_coords    = {e.defect_coords}")
 print(f"  structure.formula= {e.structure.composition.formula}")
 print(f"  graph.n_defects  = {e.graph.n_defects}")
+print(f"  n_orientations   = {e.n_orientations}")
+print(f"  point_group      = {e.point_group}")
+print(f"  space_group      = {e.space_group}")
 #   name             = 2B_C1.001
-#   complex_defect   = ComplexDefect('2B_C1', charges=[-1,0,1,2,3,4,5,6,7,8,9,10,11,12,13])
+#   complex_defect   = ComplexDefect('2B_C1', charges=[0])
 #   site_path        = ('C1', 'C1')
 #   distances        = (3.567,)
 #   defect_coords    = ((0.0, 0.0, 0.0), (0.0, 0.5, 0.5))
 #   structure.formula= B2 C214
 #   graph.n_defects  = 2
+#   n_orientations   = 1
+#   point_group      = D2h
+#   space_group      = Pmmm
 
 # ---------------------------------------------------------------------------
 # 4. 增量计算 N=3 — N=2 完全从缓存复用
@@ -189,6 +195,9 @@ def _entry_to_dict(e):
         "formula": str(e.structure.composition.formula) if e.structure else None,
         "n_atoms": len(e.structure) if e.structure else 0,
         "graph_n_defects": e.graph.n_defects if e.graph else 0,
+        "n_orientations": e.n_orientations,
+        "point_group": e.point_group,
+        "space_group": e.space_group,
     }
 
 

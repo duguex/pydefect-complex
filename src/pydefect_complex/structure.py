@@ -127,70 +127,114 @@ _SG_TO_HM = {
 # ---------------------------------------------------------------------------
 
 
-def _get_unique_rotations(pristine_structure: "IStructure") -> list:
+def _count_orientations_from_coords(
+    frac_coords: "list[tuple[float,...]]",
+    pristine_structure: "IStructure",
+    sym_ops: "tuple | None" = None,
+    tol: float = 0.2,
+) -> int:
+    """Count orientations of a geometric cluster (no chemistry needed).
+
+    Pure geometry: applies space-group ops, maps to host atoms, groups
+    by translational equivalence.  Works on raw frac_coords — usable
+    before defect chemistry assignment.
+
+    Args:
+        frac_coords: Defect site fractional coordinates.
+        pristine_structure: Perfect supercell structure.
+        sym_ops: Optional pre-computed (rotations, translations) from
+                 spglib.get_symmetry, to avoid repeated spglib calls.
+    """
+    from scipy.spatial import KDTree
     import spglib
 
-    cell = (pristine_structure.lattice.matrix,
-            pristine_structure.frac_coords,
-            pristine_structure.atomic_numbers)
-    sym = spglib.get_symmetry(cell, symprec=0.01)
+    if sym_ops is None:
+        cell = (pristine_structure.lattice.matrix,
+                pristine_structure.frac_coords,
+                pristine_structure.atomic_numbers)
+        sym = spglib.get_symmetry(cell, symprec=0.01)
+        symmetries = (sym['rotations'], sym['translations'])
+    else:
+        symmetries = sym_ops
 
-    seen = set()
-    rotations = []
-    for R in sym['rotations']:
-        key = tuple(R.flatten())
-        if key not in seen:
-            seen.add(key)
-            rotations.append(np.array(R, dtype=int))
-    return rotations
+    pos = pristine_structure.frac_coords
+    lattice = pristine_structure.lattice.matrix
+    tree = KDTree(pos)
+
+    dc = np.array(frac_coords, dtype=float)
+    n = dc.shape[0]
+    if n < 2:
+        return 1 if n == 1 else 0
+
+    r_to_ts: dict[tuple, list] = {}
+    for R_mat, t in zip(symmetries[0], symmetries[1]):
+        key = tuple(R_mat.flatten())
+        r_to_ts.setdefault(key, []).append(np.array(t))
+
+    orig_dists = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            df = dc[i] - dc[j]; df -= np.round(df)
+            orig_dists.append(float(np.linalg.norm(lattice @ df)))
+    orig_dists.sort()
+
+    orient_sets: list[tuple[tuple[float, ...], ...]] = []
+
+    for r_key, t_list in r_to_ts.items():
+        R = np.array(r_key, dtype=int).reshape(3, 3)
+        for t in t_list:
+            rotated = (dc @ R.T + t) % 1.0
+            ids = []
+            ok = True
+            for fc in rotated:
+                _, idx = tree.query(fc)
+                d = np.linalg.norm((fc - tree.data[idx] + 0.5) % 1.0 - 0.5)
+                if d > tol: ok = False; break
+                ids.append(int(idx))
+            if not ok: continue
+
+            mapped = []
+            for i in range(n):
+                for j in range(i + 1, n):
+                    df = pos[ids[i]] - pos[ids[j]]; df -= np.round(df)
+                    mapped.append(round(float(np.linalg.norm(lattice @ df)), 3))
+            mapped.sort()
+            if not all(abs(a - b) < tol for a, b in zip(orig_dists, mapped)):
+                continue
+
+            # Normalize: relative positions from ids[0], min-image wrapped.
+            # Canonicalize: try all permutations of equivalent atoms
+            # (same wyckoff+elem). For geometry-only counting, all
+            # sites are equivalent — try every anchor + ordering.
+            import itertools
+            best = None
+            all_frac = [pos[i] for i in ids]
+            for perm_ids in itertools.permutations(range(n)):
+                anchor = all_frac[perm_ids[0]]
+                normed = []
+                for k in range(1, n):
+                    pt = all_frac[perm_ids[k]]
+                    df = tuple(pt[j] - anchor[j] for j in range(3))
+                    df_w = tuple(round(x - round(x), 8) for x in df)
+                    normed.append(df_w)
+                cand = tuple(normed)  # ORDERED (no sort)
+                if best is None or cand < best:
+                    best = cand
+            if best not in orient_sets:
+                orient_sets.append(best)
+            break
+
+    return len(orient_sets)
 
 
 def count_defect_orientations(
     entry: "ComplexDefectEntry",
     pristine_structure: "IStructure",
-    tol: float = 0.15,
+    tol: float = 0.2,
 ) -> int:
-    """Count symmetry-inequivalent orientations of a defect complex.
-
-    Applies the pristine crystal's unique point group rotations to the
-    defect site coordinates (centered at the defect centroid), then maps
-    each rotated set back to nearest host atoms via KDTree. Returns the
-    number of distinct host-atom-index sets — i.e., the number of
-    rotationally distinct ways to embed this defect geometry in the crystal.
-    """
-    from scipy.spatial import KDTree
-
-    rotations = _get_unique_rotations(pristine_structure)
-    frac_coords = pristine_structure.frac_coords
-    tree = KDTree(frac_coords)
-
-    dc = np.array(entry.defect_coords, dtype=float)
-    N_atoms = dc.shape[0]
-    if N_atoms == 0:
-        return 0
-
-    centroid = dc.mean(axis=0)
-    dc_centered = dc - centroid
-
-    seen = set()
-    for R in rotations:
-        rotated = dc_centered @ R.T + centroid
-        ids = []
-        ok = True
-        for fc in rotated:
-            fw = fc - np.floor(fc)
-            _, idx = tree.query(fw)
-            d = np.linalg.norm((fw - tree.data[idx] + 0.5) % 1 - 0.5)
-            if d > tol:
-                ok = False
-                break
-            ids.append(int(idx))
-        if ok:
-            seen.add(tuple(sorted(ids)))
-
-    return len(seen)
-
-
+    """Thin wrapper — delegates to _count_orientations_from_coords."""
+    return _count_orientations_from_coords(
+        list(entry.defect_coords), pristine_structure, tol)
 @dataclass
 class ComplexDefectEntry:
     """A generated complex defect structure with metadata.
@@ -264,9 +308,13 @@ class ComplexDefectEntry:
 
     @property
     def n_orientations(self) -> int:
-        if self.pristine_structure_cache is None:
-            return -1
-        if self._n_orientations < 0:
+        if self._n_orientations >= 0:
+            return self._n_orientations
+        if self.graph is not None and self.graph.n_orientations >= 0:
+            self._n_orientations = self.graph.n_orientations
+            return self._n_orientations
+        if self.pristine_structure_cache is not None:
             self._n_orientations = count_defect_orientations(
                 self, self.pristine_structure_cache)
-        return self._n_orientations
+            return self._n_orientations
+        return -1

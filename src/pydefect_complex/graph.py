@@ -42,6 +42,7 @@ class HostGraph:
     nodes: list[HostNode]
     lattice: np.ndarray
     _kdtree: Optional[KDTree] = None
+    _sym_ops: Optional[tuple] = None  # cached spglib (rotations, translations)
 
     def __post_init__(self):
         self.lattice = np.asarray(self.lattice, dtype=float)
@@ -85,6 +86,21 @@ class HostGraph:
                 frac_coord=site.frac_coords.copy(),
             ))
         return cls(nodes=nodes, lattice=lattice)
+
+    def _get_sym_ops(self):
+        """Lazy-load spglib symmetry operations."""
+        if self._sym_ops is not None:
+            return self._sym_ops
+        import spglib
+        # Reconstruct pristine structure from nodes
+        from pymatgen.core import Structure, Lattice
+        species = [n.element for n in self.nodes]
+        positions = [n.frac_coord for n in self.nodes]
+        struct = Structure(Lattice(self.lattice), species, positions)
+        cell = (self.lattice, struct.frac_coords, struct.atomic_numbers)
+        sym = spglib.get_symmetry(cell, symprec=0.01)
+        self._sym_ops = (sym['rotations'], sym['translations'])
+        return self._sym_ops
 
     def find_node(self, frac_coord: np.ndarray) -> HostNode:
         d, idx = self._kdtree.query(frac_coord)
@@ -168,6 +184,7 @@ class ComplexDefectGraph:
     wyckoffs: tuple[str, ...]
     elements: tuple[str, ...]
     edges: list[tuple[int, int, np.ndarray]] = field(default_factory=list)
+    n_orientations: int = -1  # cached during enumeration (geometry only)
 
     def __post_init__(self):
         self.edges = [(i, j, np.asarray(v, dtype=float)) for i, j, v in self.edges]

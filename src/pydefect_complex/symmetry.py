@@ -13,12 +13,138 @@ import logging
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 from .graph import equivalent, HostGraph, ComplexDefectGraph
 
 if TYPE_CHECKING:
     from .structure import ComplexDefectEntry
 
 logger = logging.getLogger(__name__)
+
+
+def _distance_fingerprint(
+    entry: "ComplexDefectEntry",
+    host_graph: "HostGraph",
+    decimals: int = 2,
+) -> tuple[float, ...]:
+    """Sorted tuple of all pairwise min-image distances between defect sites.
+
+    Used as a fast fingerprint to verify Kabsch graph-isomorphism dedup.
+    Two geometries with different fingerprints are guaranteed inequivalent;
+    matching fingerprints are necessary but not sufficient for equivalence.
+    """
+    fc = [np.array(c) for c in entry.defect_coords]
+    dists = []
+    for i in range(len(fc)):
+        for j in range(i + 1, len(fc)):
+            d = host_graph.min_image_distance(fc[i], fc[j])
+            dists.append(round(float(d), decimals))
+    return tuple(sorted(dists))
+
+
+def verify_dedup(
+    entries: list["ComplexDefectEntry"],
+    host_graph: "HostGraph",
+    eps: float = 0.1,
+) -> dict:
+    """Verify geometric deduplication correctness using distance fingerprints.
+
+    Does NOT change any entries or the dedup result. Returns a report dict:
+
+        {
+            "n_entries": total entries after dedup,
+            "fingerprint_groups": how many distinct fingerprints,
+            "false_positives": fingerprints that span multiple clusters
+                              (entries with same fingerprint but in different
+                              geometric clusters — may indicate under-dedup),
+            "false_negatives": fingerprints where one cluster has entries with
+                              different fingerprints (may indicate over-dedup),
+            "ok": True if no anomalies found,
+        }
+
+    A "false positive" (same fingerprint, different cluster) means the
+    Kabsch dedup may be over-strict (entries that look identical by distance
+    were not merged).  A "false negative" (same cluster, different fingerprint)
+    means the fingerprint is too coarse to distinguish inequivalent geometries.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    if not entries:
+        return {"n_entries": 0, "ok": True}
+
+    # Build geometric clusters (same as deduplicate step 1)
+    clusters: list[list["ComplexDefectEntry"]] = [[entries[0]]]
+    entry_cluster_id: dict[int, int] = {id(entries[0]): 0}
+
+    from .graph import equivalent, ComplexDefectGraph
+
+    for e in entries[1:]:
+        if e.graph is None:
+            e.graph = ComplexDefectGraph.from_entry(e, host_graph, 4.0)
+        found = False
+        for cid, cluster in enumerate(clusters):
+            if equivalent(e.graph, cluster[0].graph, eps):
+                cluster.append(e)
+                entry_cluster_id[id(e)] = cid
+                found = True
+                break
+        if not found:
+            entry_cluster_id[id(e)] = len(clusters)
+            clusters.append([e])
+
+    # Compute fingerprints
+    fp_to_clusters: dict[tuple, set[int]] = {}
+    cluster_to_fps: dict[int, set[tuple]] = {}
+
+    for cid, cluster in enumerate(clusters):
+        cluster_to_fps[cid] = set()
+        for e in cluster:
+            fp = _distance_fingerprint(e, host_graph)
+            fp_to_clusters.setdefault(fp, set()).add(cid)
+            cluster_to_fps[cid].add(fp)
+
+    false_positives = []  # same FP, different clusters
+    false_negatives = []  # same cluster, different FPs
+
+    for fp, cids in fp_to_clusters.items():
+        if len(cids) > 1:
+            false_positives.append({
+                "fingerprint": fp,
+                "cluster_ids": sorted(cids),
+                "n_entries": sum(len(clusters[c]) for c in cids),
+            })
+
+    for cid, fps in cluster_to_fps.items():
+        if len(fps) > 1:
+            false_negatives.append({
+                "cluster_id": cid,
+                "fingerprints": [list(f) for f in sorted(fps)],
+                "n_entries": len(clusters[cid]),
+            })
+
+    ok = len(false_positives) == 0
+    report = {
+        "n_entries": len(entries),
+        "n_clusters": len(clusters),
+        "fingerprint_groups": len(fp_to_clusters),
+        "false_positives": false_positives,
+        "false_negatives": false_negatives,
+        "ok": ok,
+    }
+
+    if false_positives:
+        logger.warning(
+            "Dedup verification: %d fingerprint(s) span multiple clusters "
+            "(possible under-dedup)", len(false_positives))
+    if false_negatives:
+        logger.info(
+            "Dedup verification: %d cluster(s) have multiple fingerprints "
+            "(expected — distance fingerprint is coarser than Kabsch)",
+            len(false_negatives))
+
+    return report
 
 
 def deduplicate(

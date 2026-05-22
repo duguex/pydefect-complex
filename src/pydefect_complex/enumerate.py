@@ -44,10 +44,12 @@ class ComplexDefectEnumerator:
         host_graph: HostGraph,
         max_distance: float = 5.0,
         min_distance: float = 0.3,
+        pristine_structure=None,
     ):
         self.host_graph = host_graph
         self.max_distance = max_distance
         self.min_distance = min_distance
+        self.pristine_structure = pristine_structure
         self._cache: dict[int, list[ComplexDefectGraph]] = {}
 
     @property
@@ -77,18 +79,37 @@ class ComplexDefectEnumerator:
         # Bootstrap N=2 if needed
         if 2 not in self._cache:
             self._cache[2] = self._enumerate_2(eps)
+            self._compute_orientations(self._cache[2])
 
         # Apriori: k → k+1
         start_k = max(2, max_cached)
         for k in range(start_k, N_max):
             if k + 1 not in self._cache:
                 self._cache[k + 1] = self._extend_order(k, eps)
+                self._compute_orientations(self._cache[k + 1])
 
         return {k: v for k, v in self._cache.items() if k <= N_max}
 
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
+
+    def _compute_orientations(self, geometries: list[ComplexDefectGraph]):
+        """Compute orientation counts for all geometries in-place.
+
+        Uses the host crystal's space group — geometry only, no chemistry.
+        """
+        if self.pristine_structure is None:
+            return
+        from .structure import _count_orientations_from_coords
+        hg = self.host_graph
+        sym_ops = hg._get_sym_ops()
+        for G in geometries:
+            if G.n_orientations >= 0:
+                continue
+            fc = [tuple(hg.nodes[nid].frac_coord) for nid in G.host_node_ids]
+            G.n_orientations = _count_orientations_from_coords(
+                fc, self.pristine_structure, sym_ops)
 
     def _enumerate_2(self, eps: float) -> list[ComplexDefectGraph]:
         """Generate all unique 2-node geometries from anchor+neighbor pairs.
@@ -307,6 +328,7 @@ def generate_all_entries(
                 structure=struct,
                 defect_coords=defect_coords,
                 graph=G,
+                pristine_structure_cache=supercell_info.structure,
             ))
 
     return entries

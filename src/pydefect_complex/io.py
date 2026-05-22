@@ -136,6 +136,91 @@ def merge_defect_in(
 
 
 # ---------------------------------------------------------------------------
+# Human-readable defect summary
+# ---------------------------------------------------------------------------
+
+
+def _orient_str(n: int) -> str:
+    if n < 0:
+        return "—"
+    return str(n)
+
+
+def _dists_str(distances) -> str:
+    if not distances:
+        return "—"
+    return " → ".join(f"{d:.2f}" for d in distances)
+
+
+def write_summary(
+    entries: list["ComplexDefectEntry"],
+    output_dir: str,
+    filename: str = "defect_summary.txt",
+) -> str:
+    """Write a human-readable summary of all complex defect entries.
+
+    Lists each defect with its key properties: distances, symmetry,
+    orientations, and composition.  Complements the machine-readable
+    complex_defect_in.yaml.
+    """
+    from collections import Counter
+
+    path = Path(output_dir) / filename
+
+    lines = []
+    lines.append("=" * 78)
+    lines.append("Complex Defect Summary")
+    lines.append("=" * 78)
+    lines.append("")
+
+    # Group by composition
+    by_comp: dict[str, list] = {}
+    for e in entries:
+        by_comp.setdefault(e.complex_defect.name, []).append(e)
+
+    for comp_name in sorted(by_comp):
+        comp_entries = by_comp[comp_name]
+        lines.append(f"[{comp_name}]  ({len(comp_entries)} configurations)")
+        lines.append("-" * 78)
+        lines.append(
+            f"  {'Name':<28s} {'Formula':>10s} {'Atoms':>6s} "
+            f"{'Dists (Å)':>20s} {'PG':>6s} {'SG':>12s} {'Orient':>6s}"
+        )
+        lines.append("  " + "-" * 76)
+
+        for e in comp_entries:
+            formula = str(e.structure.composition.formula) if e.structure else "?"
+            n_atoms = len(e.structure) if e.structure else 0
+            dists = _dists_str(e.distances)
+            pg = e.point_group or "?"
+            sg = e.space_group or "?"
+            no = _orient_str(e.n_orientations)
+
+            lines.append(
+                f"  {e.name:<28s} {formula:>10s} {n_atoms:>6d} "
+                f"{dists:>20s} {pg:>6s} {sg:>12s} {no:>6s}"
+            )
+        lines.append("")
+
+    # Overall stats
+    n_comp = len(by_comp)
+    n_total = len(entries)
+    pg_counts = Counter(e.point_group for e in entries if e.point_group)
+
+    lines.append("=" * 78)
+    lines.append(f"Total: {n_total} entries in {n_comp} compositions")
+    if pg_counts:
+        lines.append("Point group distribution:")
+        for pg, count in pg_counts.most_common():
+            lines.append(f"  {pg:>6s}: {count}")
+    lines.append("=" * 78)
+
+    text = "\n".join(lines) + "\n"
+    path.write_text(text)
+    return str(path)
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
