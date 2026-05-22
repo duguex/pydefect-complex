@@ -139,12 +139,16 @@ def _classify_point_group(rotations: list) -> str:
 
     Works for subgroups of Oh (cubic point group order 48).
     Rotation matrices are INTEGER 3x3 in the supercell basis.
+
+    An empty stabilizer (no symmetry operation maps the geometry to
+    itself) corresponds to the trivial group C1.
     """
+    if not rotations:
+        return "C1"
     n = len(set(tuple(r.flatten()) for r in rotations))
-    # Fast path: use order lookup
     if n in _STAB_ORDER_TO_PG:
         return _STAB_ORDER_TO_PG[n]
-    return f"G{n}"  # fallback: generic label
+    return f"G{n}"  # fallback: unknown order — consider using spglib
 
 
 def _count_orientations_from_coords(
@@ -251,7 +255,7 @@ def _count_orientations_from_coords(
                 orient_sets.append(best)
             break
 
-    pg = _classify_point_group(stabilizer_rots) if stabilizer_rots else "C1"
+    pg = _classify_point_group(stabilizer_rots)
     return len(orient_sets), pg
 
 

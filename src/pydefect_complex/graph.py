@@ -219,6 +219,7 @@ class ComplexDefectGraph:
             elements=tuple(d["elements"]),
             edges=[(i, j, np.array(v)) for i, j, v in d["edges"]],
             n_orientations=d.get("n_orientations", -1),
+            point_group=d.get("point_group", ""),
         )
 
     @classmethod
