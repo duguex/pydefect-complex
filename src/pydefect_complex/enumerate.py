@@ -272,6 +272,7 @@ def generate_all_entries(
     N_max: int,
     eps: float = 0.1,
     orders: set[int] | None = None,
+    charges: list[int] | None = None,
 ) -> list["ComplexDefectEntry"]:
     """Full pipeline: enumerate geometries, assign compositions, generate structures.
 
@@ -283,6 +284,8 @@ def generate_all_entries(
         eps: Tolerance for geometric equivalence (Å).
         orders: If given, only generate entries for these specific orders.
                 None means all orders 2..N_max.
+        charges: Charge states to assign to every generated entry.
+                 None uses ComplexDefect default (neutral only).
 
     Returns:
         List of ComplexDefectEntry objects ready for writing.
@@ -300,6 +303,8 @@ def generate_all_entries(
             continue
         pairs = assign_compositions(geoms, single_defects)
         for G, cd in pairs:
+            if charges is not None:
+                cd.charges = list(charges)
             try:
                 struct = generate_structure(
                     enumerator.host_graph, supercell_info, G, cd,

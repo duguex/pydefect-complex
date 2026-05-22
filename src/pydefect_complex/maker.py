@@ -66,11 +66,13 @@ class ComplexDefectMaker:
         dopants: Optional[list[str]] = None,
         max_distance: float = 5.0,
         min_distance: float = 0.3,
+        charges: list[int] | None = None,
     ):
         self.supercell_info = supercell_info
         self.dopants = dopants or []
         self.max_distance = max_distance
         self.min_distance = min_distance
+        self._charges = charges if charges is not None else [0]
 
         from pydefect.input_maker.defect_set_maker import DefectSetMaker
         maker = DefectSetMaker(supercell_info, dopants=self.dopants)
@@ -91,11 +93,12 @@ class ComplexDefectMaker:
     @classmethod
     def from_supercell_info(
         cls, path: str, dopants=None, max_distance=5.0, min_distance=0.3,
+        charges=None,
     ) -> "ComplexDefectMaker":
         from pydefect.input_maker.supercell_info import SupercellInfo
         with open(path) as f:
             data = json.load(f)
-        return cls(SupercellInfo.from_dict(data), dopants, max_distance, min_distance)
+        return cls(SupercellInfo.from_dict(data), dopants, max_distance, min_distance, charges)
 
     # --- Properties ---
 
@@ -193,6 +196,7 @@ class ComplexDefectMaker:
         max_distance: float | None = None,
         min_distance: float | None = None,
         deduplicate_symmetry: bool = True,
+        charges: list[int] | None = None,
     ) -> list[ComplexDefectEntry]:
         """Assign defect compositions and generate structures.
 
@@ -203,6 +207,8 @@ class ComplexDefectMaker:
             dopants: Override default dopants for this call.
             max_distance, min_distance: Override distance cutoffs.
             deduplicate_symmetry: Whether to cross-composition dedup.
+            charges: Charge states for all generated entries.
+                     None uses maker default (neutral only).
 
         Returns list[ComplexDefectEntry].
         """
@@ -230,9 +236,11 @@ class ComplexDefectMaker:
             n = max(g.n_defects for g in geometries) if geometries else 2
             self.enumerator.enumerate(n)
 
+        _charges = charges if charges is not None else self._charges
         entries = generate_all_entries(
             self.enumerator, self.supercell_info,
             self._single_defects, N_max=n,
+            charges=_charges,
         )
 
         logger.info("Total entries before dedup: %d", len(entries))
@@ -255,6 +263,7 @@ class ComplexDefectMaker:
     def make_complex(
         self, defect_names: list[str],
         max_distance=None, min_distance=None,
+        charges: list[int] | None = None,
     ) -> list[ComplexDefectEntry]:
         """Generate entries for a specific N-defect complex."""
         if len(defect_names) < 2:
@@ -262,6 +271,7 @@ class ComplexDefectMaker:
 
         defects = [self._defect_map[n] for n in defect_names]
         cd = ComplexDefect.from_defects(defects)
+        _charges = charges if charges is not None else self._charges
 
         max_d = max_distance if max_distance is not None else self.max_distance
         min_d = min_distance if min_distance is not None else self.min_distance
@@ -275,6 +285,7 @@ class ComplexDefectMaker:
         all_entries = generate_all_entries(
             self.enumerator, self.supercell_info,
             self._single_defects, N_max=cd.n_defects,
+            charges=_charges,
         )
         entries = [e for e in all_entries if e.complex_defect.name == cd.name]
         if entries:

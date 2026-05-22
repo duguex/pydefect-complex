@@ -153,6 +153,18 @@ class TestEnumerator:
             assert e.complex_defect.n_defects == 3
             assert e.structure is not None
 
+    def test_charges_parameter(self, diamond_supercell_info):
+        """Charges override applies to all generated entries."""
+        maker = ComplexDefectMaker(
+            diamond_supercell_info, dopants=["N", "B"], max_distance=4.0,
+            charges=[-2, -1, 0, 1, 2],
+        )
+        maker.make_all_pairs()
+        entries = maker.generate_entries(n_or_geometries=2)
+        assert len(entries) > 0
+        for e in entries:
+            assert e.complex_defect.charges == [-2, -1, 0, 1, 2]
+
     def test_performance_n2(self, diamond_supercell_info):
         """N=2 enumeration completes in under 2 seconds."""
         maker = ComplexDefectMaker(diamond_supercell_info)
