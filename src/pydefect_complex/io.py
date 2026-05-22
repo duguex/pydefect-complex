@@ -229,17 +229,21 @@ def _write_defect_entry_json(
     entry: "ComplexDefectEntry",
     charge: int,
 ):
-    """Generate a minimal defect_entry.json for pydefect compatibility.
+    """Write a pydefect-compatible defect_entry.json using monty serialization.
 
-    The full defect_entry.json is normally created by pydefect_vasp de.
-    This writes a placeholder that pydefect can recognize and later
-    enrich with calculation results.
+    Uses pydefect's DefectEntry class with minimal fields — pydefect
+    post-processing (efnv, defect_energy_infos) only needs .name and .charge.
     """
-    defect_entry = {
-        "name": entry.name,
-        "charge": charge,
-        "full_name": f"{entry.name}_{charge}",
-        "defect_center": None,
-    }
-    with open(abs_path / "defect_entry.json", "w") as f:
-        json.dump(defect_entry, f, indent=2)
+    from pydefect.input_maker.defect_entry import DefectEntry
+    from monty.serialization import dumpfn
+
+    de = DefectEntry(
+        name=entry.name,
+        charge=charge,
+        structure=entry.structure,
+        site_symmetry="1",
+        defect_center=(0.0, 0.0, 0.0),
+        perturbed_sites=[],
+        perturbed_site_symmetry="1",
+    )
+    dumpfn(de, abs_path / "defect_entry.json")
