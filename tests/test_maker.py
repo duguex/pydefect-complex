@@ -67,14 +67,16 @@ class TestMakerFromSupercellInfo:
         maker = ComplexDefectMaker(
             diamond_supercell_info, max_distance=3.5
         )
-        entries = maker.make_all_pairs()
-        assert isinstance(entries, list)
+        geoms = maker.make_all_pairs()
+        assert isinstance(geoms, list)
+        assert all(g.n_defects == 2 for g in geoms)
 
     def test_write_output(self, diamond_supercell_info, tmp_output_dir):
         maker = ComplexDefectMaker(
             diamond_supercell_info, max_distance=3.5
         )
-        entries = maker.make_all_pairs()
+        maker.make_all_pairs()  # enumerate geometries
+        entries = maker.generate_entries(n_or_geometries=2)
         if not entries:
             pytest.skip("No entries generated with this cutoff")
 
@@ -144,7 +146,8 @@ class TestEnumerator:
         maker = ComplexDefectMaker(
             diamond_supercell_info, dopants=["N", "B"], max_distance=4.0,
         )
-        entries = maker.make_all_n_body(n=3)
+        maker.make_all_n_body(n=3)  # enumerate
+        entries = maker.generate_entries(n_or_geometries=3)
         assert isinstance(entries, list)
         for e in entries:
             assert e.complex_defect.n_defects == 3

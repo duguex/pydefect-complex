@@ -19,6 +19,8 @@ import json
 import logging
 from typing import Optional, TYPE_CHECKING
 
+import numpy as np
+
 if TYPE_CHECKING:
     from pydefect.input_maker.supercell_info import SupercellInfo
 
@@ -41,21 +43,21 @@ class ComplexDefectMaker:
 
     Uses Apriori-style incremental enumeration (PLAN-C):
       1. Enumerate geometrically unique N-node site configurations.
-      2. Assign defect compositions by wyckoff label matching.
-      3. Generate structures and deduplicate.
+      2. (optional) Assign defect compositions by wyckoff label matching.
+      3. (optional) Generate structures and deduplicate.
 
-    Both geometry enumeration and entry generation are cached by order.
-    Calling make_all_n_body(n=4) after make_all_n_body(n=2) only computes
-    N=3 and N=4 entries — lower orders are reused from cache.
+    Default workflow returns geometries only — no chemistry.  Composition
+    assignment and structure generation are explicit separate steps.
 
     Public API:
-        maker.make_pair(d1, d2)        → generate one specific pair
-        maker.make_complex([d1, d2])   → generate one specific complex
-        maker.make_all_pairs()         → all N=2 complexes
-        maker.make_all_n_body(n=3)     → all N-body complexes
-        maker.enumerate_geometries(N_max) → raw geometry enumeration
-        maker.set_dopants(["X", "Y"])  → swap dopants (clears entry cache only)
-        maker.write(entries, dir)      → write pydefect-compatible output
+        maker.make_all_pairs()            → list[ComplexDefectGraph] (N=2)
+        maker.make_all_n_body(n=3)        → list[ComplexDefectGraph] (N-body)
+        maker.generate_entries(n)         → list[ComplexDefectEntry]
+        maker.generate_entries(n, dopants=["N","B"])
+        maker.set_dopants(["X", "Y"])     → swap default dopants for entries
+        maker.make_pair(d1, d2)           → entries for one specific pair
+        maker.write(entries, dir)         → pydefect-compatible output
+        maker.show_geometries(N_max)      → print geometry summary
     """
 
     def __init__(
@@ -83,7 +85,6 @@ class ComplexDefectMaker:
             min_distance=min_distance,
             pristine_structure=supercell_info.structure,
         )
-        self._entry_cache: dict[int, list[ComplexDefectEntry]] = {}
 
     # --- Class methods ---
 
@@ -128,7 +129,6 @@ class ComplexDefectMaker:
         from pydefect.input_maker.defect_set_maker import DefectSetMaker
 
         self.dopants = dopants or []
-        self._entry_cache.clear()  # invalidate: different dopants → different defect list
         maker = DefectSetMaker(self.supercell_info, dopants=self.dopants)
         self._single_defects = list(maker.defect_set)
         self._defect_map = {d.name: d for d in self._single_defects}
@@ -146,7 +146,111 @@ class ComplexDefectMaker:
         """
         return self.enumerator.enumerate(N_max, eps)
 
-    # --- Defect generation ---
+    # --- Geometry enumeration (default: no chemistry) ---
+
+    def make_all_n_body(
+        self, n: int = 2,
+        max_distance: float | None = None,
+        min_distance: float | None = None,
+    ) -> list[ComplexDefectGraph]:
+        """Enumerate geometrically unique N-body site configurations.
+
+        Default workflow — returns geometries only, no defect chemistry.
+        Use generate_entries() afterwards to assign compositions and
+        generate structures.
+
+        Returns list[ComplexDefectGraph] for order n.
+        """
+        if n < 2:
+            raise ValueError(f"n must be >= 2, got {n}")
+
+        max_d = max_distance if max_distance is not None else self.max_distance
+        min_d = min_distance if min_distance is not None else self.min_distance
+
+        if max_d != self.enumerator.max_distance or min_d != self.enumerator.min_distance:
+            self.enumerator = ComplexDefectEnumerator(
+                self.host_graph, max_distance=max_d, min_distance=min_d,
+                pristine_structure=self.supercell_info.structure,
+            )
+            self.max_distance = max_d
+            self.min_distance = min_d
+
+        self.enumerator.enumerate(n)
+        return list(self.enumerator.geometries.get(n, []))
+
+    def make_all_pairs(
+        self, max_distance=None, min_distance=None,
+    ) -> list[ComplexDefectGraph]:
+        """Enumerate all N=2 geometries (no chemistry)."""
+        return self.make_all_n_body(2, max_distance, min_distance)
+
+    # --- Explicit composition assignment + entry generation -----------
+
+    def generate_entries(
+        self,
+        n_or_geometries: int | list[ComplexDefectGraph] = 2,
+        dopants: list[str] | None = None,
+        max_distance: float | None = None,
+        min_distance: float | None = None,
+        deduplicate_symmetry: bool = True,
+    ) -> list[ComplexDefectEntry]:
+        """Assign defect compositions and generate structures.
+
+        Args:
+            n_or_geometries: Either N (int) to generate all N-body entries,
+                             or a list of ComplexDefectGraph to generate
+                             entries for specific geometries.
+            dopants: Override default dopants for this call.
+            max_distance, min_distance: Override distance cutoffs.
+            deduplicate_symmetry: Whether to cross-composition dedup.
+
+        Returns list[ComplexDefectEntry].
+        """
+        if dopants is not None:
+            self.set_dopants(dopants)
+
+        max_d = max_distance if max_distance is not None else self.max_distance
+        min_d = min_distance if min_distance is not None else self.min_distance
+
+        if max_d != self.enumerator.max_distance or min_d != self.enumerator.min_distance:
+            self.enumerator = ComplexDefectEnumerator(
+                self.host_graph, max_distance=max_d, min_distance=min_d,
+                pristine_structure=self.supercell_info.structure,
+            )
+            self.max_distance = max_d
+            self.min_distance = min_d
+
+        if isinstance(n_or_geometries, int):
+            n = n_or_geometries
+            # Enumerate if not cached
+            self.enumerator.enumerate(n)
+            geometries = self.enumerator.geometries.get(n, [])
+        else:
+            geometries = n_or_geometries
+            n = max(g.n_defects for g in geometries) if geometries else 2
+            self.enumerator.enumerate(n)
+
+        entries = generate_all_entries(
+            self.enumerator, self.supercell_info,
+            self._single_defects, N_max=n,
+        )
+
+        logger.info("Total entries before dedup: %d", len(entries))
+
+        if deduplicate_symmetry and entries:
+            entries = deduplicate(entries, self.host_graph, max_d)
+            logger.info("After dedup: %d entries", len(entries))
+
+        # Filter to requested geometries/order
+        if isinstance(n_or_geometries, list):
+            geom_node_sets = {tuple(sorted(g.host_node_ids)) for g in n_or_geometries}
+            entries = [e for e in entries
+                       if e.graph is not None
+                       and tuple(sorted(e.graph.host_node_ids)) in geom_node_sets]
+        else:
+            entries = [e for e in entries if e.complex_defect.n_defects == n_or_geometries]
+
+        return entries
 
     def make_complex(
         self, defect_names: list[str],
@@ -165,6 +269,7 @@ class ComplexDefectMaker:
         if max_d != self.enumerator.max_distance or min_d != self.enumerator.min_distance:
             self.enumerator = ComplexDefectEnumerator(
                 self.host_graph, max_distance=max_d, min_distance=min_d,
+                pristine_structure=self.supercell_info.structure,
             )
 
         all_entries = generate_all_entries(
@@ -179,69 +284,34 @@ class ComplexDefectMaker:
     def make_pair(self, d1, d2, max_distance=None, min_distance=None):
         return self.make_complex([d1, d2], max_distance, min_distance)
 
-    def make_all_n_body(
-        self, n=2, max_distance=None, min_distance=None, deduplicate_symmetry=True,
-    ) -> list[ComplexDefectEntry]:
-        """Generate all N-body complex defect combinations.
+    def show_geometries(self, N_max: int = 2):
+        """Print a human-readable geometry summary (no chemistry)."""
+        geo = self.enumerate_geometries(N_max)
+        for n in sorted(geo):
+            geoms = geo[n]
+            print(f"\n=== N={n} 几何构型 ({len(geoms)} 个) ===")
+            for i, g in enumerate(geoms):
+                dists = sorted([float(np.linalg.norm(v)) for _, _, v in g.edges])
+                ds = ", ".join(f"{d:.2f}" for d in dists)
+                print(f"  G{i:3d}: edges={len(g.edges)} dists=[{ds}] "
+                      f"n_orient={g.n_orientations} pg={g.point_group} "
+                      f"wyckoffs={g.wyckoffs}")
 
-        Caches entries by order — calling with larger n only computes
-        new orders, reusing cached results for lower orders.
+    def save_geometry_cache(self, output_dir: str = "."):
+        """Write geometry cache to JSON files for later reuse."""
+        import json
+        from pathlib import Path
+        out = Path(output_dir)
+        for n, geoms in self.enumerator.geometries.items():
+            path = out / f"cache_geometry_N{n}.json"
+            path.write_text(json.dumps(
+                [g.to_dict() for g in geoms], indent=2, ensure_ascii=False))
+            logger.info("Saved %d geometries to %s", len(geoms), path)
 
-        Uses the Apriori pipeline:
-          1. Enumerate unique geometries for order n.
-          2. Assign all compatible defect compositions.
-          3. Deduplicate across compositions.
-        """
-        if n < 2:
-            raise ValueError(f"n must be >= 2, got {n}")
-
-        max_d = max_distance if max_distance is not None else self.max_distance
-        min_d = min_distance if min_distance is not None else self.min_distance
-
-        # Distance param change invalidates everything
-        if max_d != self.enumerator.max_distance or min_d != self.enumerator.min_distance:
-            self.enumerator = ComplexDefectEnumerator(
-                self.host_graph, max_distance=max_d, min_distance=min_d,
-            )
-            self.max_distance = max_d
-            self.min_distance = min_d
-            self._entry_cache.clear()
-
-        # Determine which orders need computing
-        missing = {
-            k for k in range(2, n + 1)
-            if k not in self._entry_cache
-        }
-
-        if missing:
-            logger.info("Computing orders: %s (cached: %s)", sorted(missing),
-                        sorted(self._entry_cache.keys()))
-            entries = generate_all_entries(
-                self.enumerator, self.supercell_info,
-                self._single_defects, N_max=n,
-                orders=missing,
-            )
-
-            logger.info("Total entries before dedup: %d", len(entries))
-
-            if deduplicate_symmetry and entries:
-                entries = deduplicate(entries, self.host_graph, max_d)
-                logger.info("After dedup: %d entries", len(entries))
-
-            # Partition by n_defects and cache each order
-            by_order: dict[int, list[ComplexDefectEntry]] = {}
-            for e in entries:
-                by_order.setdefault(e.complex_defect.n_defects, []).append(e)
-            for k, ents in by_order.items():
-                self._entry_cache[k] = ents
-                logger.info("Cached %d entries for N=%d", len(ents), k)
-        else:
-            logger.info("All orders 2..%d already cached", n)
-
-        return list(self._entry_cache.get(n, []))
-
-    def make_all_pairs(self, max_distance=None, min_distance=None, deduplicate_symmetry=True):
-        return self.make_all_n_body(2, max_distance, min_distance, deduplicate_symmetry)
+    @staticmethod
+    def load_geometries(path: str) -> list[ComplexDefectGraph]:
+        """Load geometries from a cache JSON file."""
+        return ComplexDefectGraph.load_json(path)
 
     # --- Output ---
 

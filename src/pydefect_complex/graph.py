@@ -185,6 +185,7 @@ class ComplexDefectGraph:
     elements: tuple[str, ...]
     edges: list[tuple[int, int, np.ndarray]] = field(default_factory=list)
     n_orientations: int = -1  # cached during enumeration (geometry only)
+    point_group: str = ""     # Schoenflies symbol of stabilizer subgroup
 
     def __post_init__(self):
         self.edges = [(i, j, np.asarray(v, dtype=float)) for i, j, v in self.edges]
@@ -197,6 +198,34 @@ class ComplexDefectGraph:
     def node_labels(self) -> list[tuple[str, str]]:
         """Host site identity per node: (wyckoff, element)."""
         return list(zip(self.wyckoffs, self.elements))
+
+    def to_dict(self) -> dict:
+        """Serialize to JSON-compatible dict."""
+        return {
+            "host_node_ids": list(self.host_node_ids),
+            "wyckoffs": list(self.wyckoffs),
+            "elements": list(self.elements),
+            "edges": [[i, j, v.tolist()] for i, j, v in self.edges],
+            "n_orientations": self.n_orientations,
+            "point_group": self.point_group,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ComplexDefectGraph":
+        """Deserialize from dict."""
+        return cls(
+            host_node_ids=tuple(d["host_node_ids"]),
+            wyckoffs=tuple(d["wyckoffs"]),
+            elements=tuple(d["elements"]),
+            edges=[(i, j, np.array(v)) for i, j, v in d["edges"]],
+            n_orientations=d.get("n_orientations", -1),
+        )
+
+    @classmethod
+    def load_json(cls, path: str) -> list["ComplexDefectGraph"]:
+        """Load a list of geometries from a JSON cache file."""
+        import json
+        return [cls.from_dict(d) for d in json.load(open(path))]
 
     @classmethod
     def from_entry(

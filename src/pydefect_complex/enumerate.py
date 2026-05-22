@@ -108,8 +108,10 @@ class ComplexDefectEnumerator:
             if G.n_orientations >= 0:
                 continue
             fc = [tuple(hg.nodes[nid].frac_coord) for nid in G.host_node_ids]
-            G.n_orientations = _count_orientations_from_coords(
+            n_orient, pg = _count_orientations_from_coords(
                 fc, self.pristine_structure, sym_ops)
+            G.n_orientations = n_orient
+            G.point_group = pg
 
     def _enumerate_2(self, eps: float) -> list[ComplexDefectGraph]:
         """Generate all unique 2-node geometries from anchor+neighbor pairs.

@@ -126,6 +126,26 @@ _SG_TO_HM = {
 # Orientation counting
 # ---------------------------------------------------------------------------
 
+# Stabilizer order → Schoenflies symbol for subgroups of Oh (order 48)
+_STAB_ORDER_TO_PG = {
+    48: "Oh", 24: "Td", 16: "D4h", 12: "D3d",
+    8: "D2h", 6: "D3", 4: "C2h", 3: "C3",
+    2: "Ci", 1: "C1",
+}
+
+
+def _classify_point_group(rotations: list) -> str:
+    """Classify a set of integer rotation matrices into Schoenflies symbol.
+
+    Works for subgroups of Oh (cubic point group order 48).
+    Rotation matrices are INTEGER 3x3 in the supercell basis.
+    """
+    n = len(set(tuple(r.flatten()) for r in rotations))
+    # Fast path: use order lookup
+    if n in _STAB_ORDER_TO_PG:
+        return _STAB_ORDER_TO_PG[n]
+    return f"G{n}"  # fallback: generic label
+
 
 def _count_orientations_from_coords(
     frac_coords: "list[tuple[float,...]]",
@@ -171,6 +191,8 @@ def _count_orientations_from_coords(
         key = tuple(R_mat.flatten())
         r_to_ts.setdefault(key, []).append(np.array(t))
 
+    stabilizer_rots = []  # R matrices that map geometry to itself
+
     orig_dists = []
     for i in range(n):
         for j in range(i + 1, n):
@@ -178,7 +200,27 @@ def _count_orientations_from_coords(
             orig_dists.append(float(np.linalg.norm(lattice @ df)))
     orig_dists.sort()
 
-    orient_sets: list[tuple[tuple[float, ...], ...]] = []
+    # Pre-compute canonical form of the original geometry
+    import itertools
+
+    def _canonical(points):
+        best = None
+        for perm_ids in itertools.permutations(range(len(points))):
+            anchor = points[perm_ids[0]]
+            normed = []
+            for k in range(1, len(points)):
+                df = tuple(points[perm_ids[k]][j] - anchor[j] for j in range(3))
+                df_w = tuple(round(x - round(x), 8) for x in df)
+                normed.append(df_w)
+            cand = tuple(normed)
+            if best is None or cand < best:
+                best = cand
+        return best
+
+    best_orig = _canonical(dc)
+
+    orient_sets: list[tuple] = []
+    stabilizer_rots = []
 
     for r_key, t_list in r_to_ts.items():
         R = np.array(r_key, dtype=int).reshape(3, 3)
@@ -202,29 +244,15 @@ def _count_orientations_from_coords(
             if not all(abs(a - b) < tol for a, b in zip(orig_dists, mapped)):
                 continue
 
-            # Normalize: relative positions from ids[0], min-image wrapped.
-            # Canonicalize: try all permutations of equivalent atoms
-            # (same wyckoff+elem). For geometry-only counting, all
-            # sites are equivalent — try every anchor + ordering.
-            import itertools
-            best = None
-            all_frac = [pos[i] for i in ids]
-            for perm_ids in itertools.permutations(range(n)):
-                anchor = all_frac[perm_ids[0]]
-                normed = []
-                for k in range(1, n):
-                    pt = all_frac[perm_ids[k]]
-                    df = tuple(pt[j] - anchor[j] for j in range(3))
-                    df_w = tuple(round(x - round(x), 8) for x in df)
-                    normed.append(df_w)
-                cand = tuple(normed)  # ORDERED (no sort)
-                if best is None or cand < best:
-                    best = cand
+            best = _canonical([pos[i] for i in ids])
+            if best == best_orig:
+                stabilizer_rots.append(R)
             if best not in orient_sets:
                 orient_sets.append(best)
             break
 
-    return len(orient_sets)
+    pg = _classify_point_group(stabilizer_rots) if stabilizer_rots else "C1"
+    return len(orient_sets), pg
 
 
 def count_defect_orientations(
@@ -233,8 +261,9 @@ def count_defect_orientations(
     tol: float = 0.2,
 ) -> int:
     """Thin wrapper — delegates to _count_orientations_from_coords."""
-    return _count_orientations_from_coords(
-        list(entry.defect_coords), pristine_structure, tol)
+    n_orient, _ = _count_orientations_from_coords(
+        list(entry.defect_coords), pristine_structure, tol=tol)
+    return n_orient
 @dataclass
 class ComplexDefectEntry:
     """A generated complex defect structure with metadata.
