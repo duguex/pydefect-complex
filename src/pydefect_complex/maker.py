@@ -19,12 +19,10 @@ import json
 import logging
 from typing import Optional, TYPE_CHECKING
 
-import numpy as np
-
 if TYPE_CHECKING:
     from pydefect.input_maker.supercell_info import SupercellInfo
 
-from .core import ComplexDefect, _get_element
+from .core import ComplexDefect
 from .structure import ComplexDefectEntry
 from .graph import HostGraph, ComplexDefectGraph
 from .enumerate import (
@@ -134,49 +132,21 @@ class ComplexDefectMaker:
         defects = [self._defect_map[n] for n in defect_names]
         cd = ComplexDefect.from_defects(defects)
 
-        # Use enumerator for geometry, then assign this specific composition
-        N = cd.n_defects
-        geo = self.enumerator.enumerate(N)
-        geometries = geo.get(N, [])
+        max_d = max_distance if max_distance is not None else self.max_distance
+        min_d = min_distance if min_distance is not None else self.min_distance
 
-        entries = []
-        for G in geometries:
-            # Check wyckoff match between geometry and defect out_atoms
-            if sorted(G.wyckoffs) == sorted(d.out_atom for d in cd.defects):
-                try:
-                    from .enumerate import generate_structure
-                    struct = generate_structure(
-                        self.host_graph, self.supercell_info, G, cd,
-                    )
-                except (ValueError, IndexError):
-                    continue
+        if max_d != self.enumerator.max_distance or min_d != self.enumerator.min_distance:
+            self.enumerator = ComplexDefectEnumerator(
+                self.host_graph, max_distance=max_d, min_distance=min_d,
+            )
 
-                defect_coords = tuple(
-                    tuple(float(x) for x in self.host_graph.nodes[nid].frac_coord)
-                    for nid in G.host_node_ids
-                )
-
-                edge_map = {}
-                for i, j, v in G.edges:
-                    edge_map[(i, j)] = float(np.linalg.norm(v))
-                chain_dists = []
-                for k in range(1, N):
-                    d = edge_map.get((k - 1, k), edge_map.get((k, k - 1), 0.0))
-                    chain_dists.append(d)
-
-                entries.append(ComplexDefectEntry(
-                    name=cd.name,
-                    complex_defect=cd,
-                    site_path=tuple(d.out_atom for d in cd.defects),
-                    distances=tuple(chain_dists),
-                    structure=struct,
-                    defect_coords=defect_coords,
-                    graph=G,
-                ))
-
-        # Deduplicate + assign index names
+        all_entries = generate_all_entries(
+            self.enumerator, self.supercell_info,
+            self._single_defects, N_max=cd.n_defects,
+        )
+        entries = [e for e in all_entries if e.complex_defect.name == cd.name]
         if entries:
-            entries = deduplicate(entries, self.host_graph, self.max_distance)
+            entries = deduplicate(entries, self.host_graph, max_d)
         return entries
 
     def make_pair(self, d1, d2, max_distance=None, min_distance=None):

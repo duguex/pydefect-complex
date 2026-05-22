@@ -13,8 +13,6 @@ import logging
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
-import numpy as np
-
 from .graph import equivalent, HostGraph, ComplexDefectGraph
 
 if TYPE_CHECKING:
@@ -110,69 +108,3 @@ def deduplicate(
     return result
 
 
-def deduplicate_with_distance_priority(
-    entries: list["ComplexDefectEntry"],
-    host_graph: HostGraph,
-    max_distance: float,
-    eps: float = 0.1,
-) -> list["ComplexDefectEntry"]:
-    """Like deduplicate, but keeps the entry with shortest total edge length."""
-    if not entries:
-        return []
-
-    for entry in entries:
-        if entry.graph is None:
-            entry.graph = ComplexDefectGraph.from_entry(
-                entry, host_graph, entry.complex_defect, max_distance,
-            )
-
-    clusters: list[list["ComplexDefectEntry"]] = [[entries[0]]]
-    for e in entries[1:]:
-        found = False
-        for cluster in clusters:
-            if equivalent(e.graph, cluster[0].graph, eps):
-                cluster.append(e)
-                found = True
-                break
-        if not found:
-            clusters.append([e])
-
-    # Keep shortest per cluster
-    kept = []
-    for cluster in clusters:
-        best = min(cluster, key=lambda e: sum(
-            float(np.linalg.norm(v)) for _, _, v in e.graph.edges
-        ))
-        kept.append(best)
-
-    # Per-composition indexing
-    comp_indices: dict[str, int] = defaultdict(int)
-    for e in kept:
-        comp_indices[e.complex_defect.name] += 1
-        e.name = f"{e.complex_defect.name}.{comp_indices[e.complex_defect.name]:03d}"
-
-    return kept
-
-
-def stats(entries: list["ComplexDefectEntry"]) -> dict:
-    """Return summary statistics."""
-    if not entries:
-        return {"total": 0}
-
-    defect_types = set()
-    all_distances = []
-    n_body_counts = {}
-    for e in entries:
-        defect_types.add(e.complex_defect.name)
-        all_distances.extend(e.distances)
-        n = e.complex_defect.n_defects
-        n_body_counts[n] = n_body_counts.get(n, 0) + 1
-
-    return {
-        "total": len(entries),
-        "unique_defect_types": len(defect_types),
-        "n_body_distribution": n_body_counts,
-        "min_distance": min(all_distances) if all_distances else 0,
-        "max_distance": max(all_distances) if all_distances else 0,
-        "mean_distance": sum(all_distances) / len(all_distances) if all_distances else 0,
-    }
