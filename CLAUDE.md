@@ -24,6 +24,17 @@ Performance test thresholds: N=2 < 2s, N=3 < 20s (diamond 128-atom supercell, 4.
 python tests/validate.py /path/to/defect_output_dir
 ```
 
+## Before implementing (mandatory)
+
+**Always check existing libraries first.** The dependency stack already provides:
+
+- **spglib**: space group info, point group symbols (`get_symmetry_dataset`)
+- **pymatgen**: `SpacegroupAnalyzer`, `PointGroupAnalyzer`, `StructureMatcher`
+- **pydefect**: site labels, wyckoff mapping (via `SupercellInfo.sites`)
+- **scipy**: `KDTree`, `cdist`, spatial transforms
+
+Do NOT reimplement functionality these libraries already provide. Only write custom code when the existing tool is genuinely insufficient (wrong abstraction, too slow, incompatible interface) — and document the reason in a code comment and the commit message.
+
 ## Architecture (graph-based, Apriori enumeration — PLAN-C)
 
 ```
