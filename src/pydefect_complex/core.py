@@ -144,23 +144,13 @@ class ComplexDefect:
     # --- Internal ---
 
     def _estimate_charges(self) -> list[int]:
-        """Estimate plausible charge states from oxidation state differences.
+        """Return [0] — neutral only.
 
-        Uses pydefect's oxidation_state database and charge_set helper.
-        For neutral complexes, defaults to [-1, 0, 1].
+        Charge states for complex defects require DFT-calibrated
+        correction energies that cannot be estimated from oxidation
+        states alone. Neutral is the safe default.
         """
-        from pydefect.database.database import oxidation_state
-        from pydefect.input_maker.defect_set_maker import charge_set
-
-        in_sum = sum(
-            oxidation_state(e) for e in self._in_elements if e is not None
-        )
-        out_sum = sum(oxidation_state(e) for e in self._out_elements)
-        diff = in_sum - out_sum
-
-        if diff != 0:
-            return charge_set(diff)
-        return [-1, 0, 1]
+        return [0]
 
     # --- Dunder ---
 

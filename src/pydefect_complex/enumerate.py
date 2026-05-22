@@ -248,6 +248,7 @@ def generate_all_entries(
     single_defects: list,
     N_max: int,
     eps: float = 0.1,
+    orders: set[int] | None = None,
 ) -> list["ComplexDefectEntry"]:
     """Full pipeline: enumerate geometries, assign compositions, generate structures.
 
@@ -257,6 +258,8 @@ def generate_all_entries(
         single_defects: List of pydefect SimpleDefect objects.
         N_max: Maximum number of defect components.
         eps: Tolerance for geometric equivalence (Å).
+        orders: If given, only generate entries for these specific orders.
+                None means all orders 2..N_max.
 
     Returns:
         List of ComplexDefectEntry objects ready for writing.
@@ -266,8 +269,12 @@ def generate_all_entries(
 
     all_geometries = enumerator.enumerate(N_max, eps)
 
+    target_orders = orders if orders is not None else set(all_geometries.keys())
+
     entries = []
     for n, geoms in all_geometries.items():
+        if n not in target_orders:
+            continue
         pairs = assign_compositions(geoms, single_defects)
         for G, cd in pairs:
             try:

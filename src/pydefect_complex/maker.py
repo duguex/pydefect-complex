@@ -44,12 +44,17 @@ class ComplexDefectMaker:
       2. Assign defect compositions by wyckoff label matching.
       3. Generate structures and deduplicate.
 
+    Both geometry enumeration and entry generation are cached by order.
+    Calling make_all_n_body(n=4) after make_all_n_body(n=2) only computes
+    N=3 and N=4 entries — lower orders are reused from cache.
+
     Public API:
         maker.make_pair(d1, d2)        → generate one specific pair
         maker.make_complex([d1, d2])   → generate one specific complex
         maker.make_all_pairs()         → all N=2 complexes
         maker.make_all_n_body(n=3)     → all N-body complexes
         maker.enumerate_geometries(N_max) → raw geometry enumeration
+        maker.set_dopants(["X", "Y"])  → swap dopants (clears entry cache only)
         maker.write(entries, dir)      → write pydefect-compatible output
     """
 
@@ -77,6 +82,7 @@ class ComplexDefectMaker:
             max_distance=max_distance,
             min_distance=min_distance,
         )
+        self._entry_cache: dict[int, list[ComplexDefectEntry]] = {}
 
     # --- Class methods ---
 
@@ -106,6 +112,26 @@ class ComplexDefectMaker:
     @property
     def defect_pairs(self) -> list[tuple]:
         return list(itertools.combinations_with_replacement(self._single_defects, 2))
+
+    def set_dopants(self, dopants: Optional[list[str]] = None):
+        """Replace dopants without resetting geometry enumeration cache.
+
+        Rebuilds the single-defect list from pydefect's DefectSetMaker
+        while keeping the existing HostGraph and enumerator (with any
+        already-cached geometries). Use this to re-generate complexes
+        with different dopants without re-enumerating geometries.
+
+        Args:
+            dopants: New dopant list (empty list = intrinsic only).
+        """
+        from pydefect.input_maker.defect_set_maker import DefectSetMaker
+
+        self.dopants = dopants or []
+        self._entry_cache.clear()  # invalidate: different dopants → different defect list
+        maker = DefectSetMaker(self.supercell_info, dopants=self.dopants)
+        self._single_defects = list(maker.defect_set)
+        self._defect_map = {d.name: d for d in self._single_defects}
+        self._defect_in = {d.name: d.charges for d in self._single_defects}
 
     # --- Geometry enumeration (public) ---
 
@@ -157,7 +183,10 @@ class ComplexDefectMaker:
     ) -> list[ComplexDefectEntry]:
         """Generate all N-body complex defect combinations.
 
-        Uses the new Apriori pipeline:
+        Caches entries by order — calling with larger n only computes
+        new orders, reusing cached results for lower orders.
+
+        Uses the Apriori pipeline:
           1. Enumerate unique geometries for order n.
           2. Assign all compatible defect compositions.
           3. Deduplicate across compositions.
@@ -168,27 +197,47 @@ class ComplexDefectMaker:
         max_d = max_distance if max_distance is not None else self.max_distance
         min_d = min_distance if min_distance is not None else self.min_distance
 
-        # Adjust enumerator params if needed
+        # Distance param change invalidates everything
         if max_d != self.enumerator.max_distance or min_d != self.enumerator.min_distance:
             self.enumerator = ComplexDefectEnumerator(
                 self.host_graph, max_distance=max_d, min_distance=min_d,
             )
+            self.max_distance = max_d
+            self.min_distance = min_d
+            self._entry_cache.clear()
 
-        entries = generate_all_entries(
-            self.enumerator, self.supercell_info,
-            self._single_defects, N_max=n,
-        )
+        # Determine which orders need computing
+        missing = {
+            k for k in range(2, n + 1)
+            if k not in self._entry_cache
+        }
 
-        logger.info("Total entries before dedup: %d", len(entries))
+        if missing:
+            logger.info("Computing orders: %s (cached: %s)", sorted(missing),
+                        sorted(self._entry_cache.keys()))
+            entries = generate_all_entries(
+                self.enumerator, self.supercell_info,
+                self._single_defects, N_max=n,
+                orders=missing,
+            )
 
-        if deduplicate_symmetry and entries:
-            entries = deduplicate(entries, self.host_graph, max_d)
-            logger.info("After dedup: %d entries", len(entries))
+            logger.info("Total entries before dedup: %d", len(entries))
 
-        # Filter to only N-body entries (generate_all_entries includes all orders ≤ N)
-        entries = [e for e in entries if e.complex_defect.n_defects == n]
+            if deduplicate_symmetry and entries:
+                entries = deduplicate(entries, self.host_graph, max_d)
+                logger.info("After dedup: %d entries", len(entries))
 
-        return entries
+            # Partition by n_defects and cache each order
+            by_order: dict[int, list[ComplexDefectEntry]] = {}
+            for e in entries:
+                by_order.setdefault(e.complex_defect.n_defects, []).append(e)
+            for k, ents in by_order.items():
+                self._entry_cache[k] = ents
+                logger.info("Cached %d entries for N=%d", len(ents), k)
+        else:
+            logger.info("All orders 2..%d already cached", n)
+
+        return list(self._entry_cache.get(n, []))
 
     def make_all_pairs(self, max_distance=None, min_distance=None, deduplicate_symmetry=True):
         return self.make_all_n_body(2, max_distance, min_distance, deduplicate_symmetry)
