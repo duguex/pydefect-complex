@@ -1,5 +1,5 @@
 pydefect_complex_version: 0.1.0
-timestamp: '2026-05-24T23:36:19.085457'
+timestamp: '2026-05-24T23:48:09.138658'
 parameters:
   max_distance_angstrom: 5.0
   min_distance_angstrom: 0.3

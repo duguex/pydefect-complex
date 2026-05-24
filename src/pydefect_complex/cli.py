@@ -69,6 +69,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Charge states to generate (default: 0).",
     )
     parser.add_argument(
+        "-g", "--geometries-only",
+        action="store_true",
+        help="Only enumerate geometries, save cache, and exit. No entries or output files.",
+    )
+    parser.add_argument(
         "--structures",
         action="store_true",
         help="Write per-defect POSCAR directories (default: only YAML + summary).",
@@ -176,7 +181,24 @@ def main(argv: list[str] | None = None) -> None:
         logger.info("GEOMETRY: enumerate N=%s (cached: N=%s)", sorted(missing), sorted(cached_orders) if cached_orders else "none")
 
     # ==========================================================
-    # 5. Generate entries (geometries + compositions + structures)
+    # 5. Ensure geometries are enumerated (needed before early exit)
+    # ==========================================================
+    maker.enumerator.enumerate(n)
+
+    # ==========================================================
+    # 6. Early exit: geometries only (no entries, no output)
+    # ==========================================================
+    if args.geometries_only:
+        maker.save_geometry_cache("defect")
+        for order, geoms in maker.enumerator.geometries.items():
+            n_orient = sum(max(0, g.n_orientations) for g in geoms)
+            logger.info("CACHE: N=%d %d geometries %d orientations",
+                        order, len(geoms), n_orient)
+        logger.info("GEOMETRIES ONLY: saved to defect/geometries_N*.yaml")
+        return
+
+    # ==========================================================
+    # 7. Generate entries (geometries + compositions + structures)
     # ==========================================================
     from .enumerate import generate_all_entries
     from .symmetry import deduplicate
@@ -190,12 +212,12 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     # ==========================================================
-    # 6. Deduplication
+    # 8. Deduplication
     # ==========================================================
     final_entries = deduplicate(all_entries, maker.host_graph, args.max_distance)
 
     # ==========================================================
-    # 7. Filter new entries
+    # 9. Filter new entries
     # ==========================================================
     new_entries = [e for e in final_entries if e.name not in existing_names]
     kept = len(existing_names)
@@ -208,7 +230,7 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     # ==========================================================
-    # 8. Write output
+    # 10. Write output
     # ==========================================================
     defect_dir = Path("defect")
     defect_dir.mkdir(parents=True, exist_ok=True)
@@ -221,7 +243,6 @@ def main(argv: list[str] | None = None) -> None:
         complex_defect_in_new = {
             e.name: e.complex_defect.charges for e in new_entries
         }
-
     else:
         complex_defect_in_new = {}
 
@@ -238,7 +259,7 @@ def main(argv: list[str] | None = None) -> None:
         logger.info("STRUCTURES: skipped (use --structures to write POSCAR dirs)")
 
     # ==========================================================
-    # 9. Save geometry cache for next run
+    # 11. Save geometry cache for next run
     # ==========================================================
     maker.save_geometry_cache(str(defect_dir))
     for order, geoms in maker.enumerator.geometries.items():
