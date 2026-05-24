@@ -57,9 +57,12 @@ class ComplexDefect:
     def __post_init__(self):
         from collections import Counter
 
-        # Sort for deterministic output: by out_atom, reverse order
+        # Sort for deterministic output: by out_atom (reverse), then name.
+        # out_atom for site-based defects returns just the site label (e.g. "C1"),
+        # which is identical for all defects on the same site — using name as
+        # secondary key breaks ties deterministically.
         self.defects = sorted(
-            self.defects, key=lambda d: d.out_atom, reverse=True
+            self.defects, key=lambda d: (d.out_atom, d.name), reverse=True
         )
 
         # Generate canonical name: compact count format

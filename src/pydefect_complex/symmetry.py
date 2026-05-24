@@ -9,18 +9,18 @@ Deduplication is geometry-first:
 
 from __future__ import annotations
 
-import logging
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from .graph import equivalent, HostGraph, ComplexDefectGraph
+from .log import get_logger
 
 if TYPE_CHECKING:
     from .structure import ComplexDefectEntry
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _distance_fingerprint(
@@ -68,9 +68,6 @@ def verify_dedup(
     were not merged).  A "false negative" (same cluster, different fingerprint)
     means the fingerprint is too coarse to distinguish inequivalent geometries.
     """
-    import logging
-    logger = logging.getLogger(__name__)
-
     if not entries:
         return {"n_entries": 0, "ok": True}
 
@@ -152,6 +149,7 @@ def deduplicate(
     host_graph: HostGraph,
     max_distance: float,
     eps: float = 0.1,
+    tracker: object = None,
 ) -> list["ComplexDefectEntry"]:
     """Remove geometrically equivalent entries across all compositions.
 
@@ -165,6 +163,7 @@ def deduplicate(
         host_graph: Pre-built HostGraph of the pristine supercell.
         max_distance: Max distance (Å) for graph edges.
         eps: Max residual (Å) for graph edge matching.
+        tracker: Optional PipelineTracker for writing intermediate data.
 
     Returns:
         Deduplicated entries with assigned names.
@@ -178,6 +177,14 @@ def deduplicate(
             entry.graph = ComplexDefectGraph.from_entry(
                 entry, host_graph, max_distance,
             )
+
+    # Sort entries deterministically so cluster ordering is reproducible
+    # regardless of entry generation order.
+    entries.sort(key=lambda e: (
+        e.complex_defect.name,
+        e.distances,
+        e.graph.wyckoffs if e.graph else (),
+    ))
 
     # --- Step 1: geometric clustering (type-agnostic) ---
     clusters: list[list["ComplexDefectEntry"]] = [[entries[0]]]
@@ -196,23 +203,26 @@ def deduplicate(
             clusters.append([e])
 
     n_geom = len(clusters)
+    pct = (1 - n_geom / max(len(entries), 1)) * 100
     logger.info(
-        "Geometry dedup: %d entries → %d unique geometries",
-        len(entries), n_geom,
+        "DEDUP: %d entries → %d geometric clusters (%.1f%% reduction)",
+        len(entries), n_geom, pct,
     )
 
-    # --- Step 2: per-composition indexing ---
+    # --- Step 2: per-composition indexing (deterministic) ---
     # Collect which compositions appear in which clusters.
-    # cluster_compositions[cid] = set of composition names in that cluster
-    cluster_compositions = defaultdict(set)
+    # Use list of sorted comp names to guarantee deterministic iteration.
+    cluster_compositions: dict[int, list[str]] = {}
     for cid, cluster in enumerate(clusters):
+        comps: set[str] = set()
         for e in cluster:
-            cluster_compositions[cid].add(e.complex_defect.name)
+            comps.add(e.complex_defect.name)
+        cluster_compositions[cid] = sorted(comps)
 
     # Per composition, assign index based on which clusters it appears in.
     comp_geom_indices: dict[str, dict[int, int]] = defaultdict(dict)
-    for cid, comps in cluster_compositions.items():
-        for comp_name in comps:
+    for cid in sorted(cluster_compositions.keys()):
+        for comp_name in cluster_compositions[cid]:
             comp_geom_indices[comp_name][cid] = len(comp_geom_indices[comp_name]) + 1
 
     # --- Step 3: keep one entry per (composition, geometry cluster) ---
@@ -230,7 +240,11 @@ def deduplicate(
         e.name = f"{comp_name}.{idx:03d}"
         result.append(e)
 
-    logger.info("Final: %d entries after cross-composition geometric dedup", len(result))
+    logger.info("DEDUP FINAL: %d entries across %d compositions after cross-composition dedup",
+                 len(result), len(comp_geom_indices))
+    if tracker is not None and hasattr(tracker, 'write_dedup_clusters'):
+        tracker.write_dedup_clusters(
+            len(entries), clusters, dict(cluster_compositions), dict(comp_geom_indices))
     return result
 
 
