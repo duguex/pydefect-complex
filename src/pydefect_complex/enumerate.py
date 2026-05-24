@@ -60,7 +60,7 @@ class ComplexDefectEnumerator:
     def __init__(
         self,
         host_graph: HostGraph,
-        max_distance: float = 2.5,
+        max_distance: float = 3.0,
         min_distance: float = 0.3,
         pristine_structure=None,
         n_workers: int | None = None,

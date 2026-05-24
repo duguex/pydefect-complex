@@ -43,7 +43,7 @@ pydefect_complex [-d DOPANTS ...] [-n N_BODY] [-g] [--structures] [--workers N] 
 | `-d, --dopants` | intrinsic only | Dopant elements (e.g. ``-d N B``) |
 | `-n, --n-body` | 2 | Maximum order (generates 2..n) |
 | `-g, --geometries-only` | off | Enumerate geometry only, no entries or output files |
-| `--max-distance` | 2.5 Å | Defect-defect edge cutoff |
+| `--max-distance` | 3.0 Å | Defect-defect edge cutoff |
 | `--min-distance` | 0.3 Å | Minimum defect separation |
 | `--charges` | [0] | Charge states to generate |
 | `--structures` | off | Write per-defect POSCAR directories |
