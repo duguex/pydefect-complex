@@ -126,29 +126,47 @@ _SG_TO_HM = {
 # Orientation counting
 # ---------------------------------------------------------------------------
 
-# Stabilizer order → Schoenflies symbol for subgroups of Oh (order 48)
-_STAB_ORDER_TO_PG = {
-    48: "Oh", 24: "Td", 16: "D4h", 12: "D3d",
-    8: "D2h", 6: "D3", 4: "C2h", 3: "C3",
-    2: "Ci", 1: "C1",
-}
 
+def _classify_point_group(
+    rotations: "list[np.ndarray]", lattice: "np.ndarray",
+) -> str:
+    """Classify integer rotation matrices into a Schoenflies symbol.
 
-def _classify_point_group(rotations: list) -> str:
-    """Classify a set of integer rotation matrices into Schoenflies symbol.
+    Generates a set of test vectors by applying *rotations* to a
+    reference direction, converts to cartesian, then uses pymatgen's
+    ``PointGroupAnalyzer`` for the symbol.
 
-    Works for subgroups of Oh (cubic point group order 48).
-    Rotation matrices are INTEGER 3x3 in the supercell basis.
+    Args:
+        rotations: Integer 3x3 rotation matrices (spglib format) that
+                   form the stabilizer of a defect geometry.
+        lattice: 3x3 lattice matrix (cartesian conversion).
 
-    An empty stabilizer (no symmetry operation maps the geometry to
-    itself) corresponds to the trivial group C1.
+    Returns:
+        Schoenflies symbol (e.g. ``"C2h"``, ``"D3d"``, ``"C1"``).
     """
+    from pymatgen.core import Molecule
+    from pymatgen.symmetry.analyzer import PointGroupAnalyzer
+
     if not rotations:
         return "C1"
-    n = len(set(tuple(r.flatten()) for r in rotations))
-    if n in _STAB_ORDER_TO_PG:
-        return _STAB_ORDER_TO_PG[n]
-    return f"G{n}"  # fallback: unknown order — consider using spglib
+    unique = {tuple(r.flatten()) for r in rotations}
+    if len(unique) == 1:
+        return "C1"
+
+    ref = np.array([1.0, 0.0, 0.0], dtype=float)
+    points = set()
+    for r_mat in rotations:
+        v = lattice @ (r_mat @ ref)
+        points.add(tuple(round(c, 8) for c in v))
+
+    if len(points) == 0:
+        return "C1"
+    pts = np.array(list(points))
+    mol = Molecule(["H"] * len(pts), pts)
+    try:
+        return str(PointGroupAnalyzer(mol).get_pointgroup())
+    except Exception:
+        return "C1"
 
 
 def _count_orientations_from_coords(
@@ -255,7 +273,7 @@ def _count_orientations_from_coords(
                 orient_sets.append(best)
             break
 
-    pg = _classify_point_group(stabilizer_rots)
+    pg = _classify_point_group(stabilizer_rots, lattice)
     return len(orient_sets), pg
 
 
