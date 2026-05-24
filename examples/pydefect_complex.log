@@ -1,0 +1,16 @@
+2026-05-24 22:01:34 [INFO ] pydefect_complex.cli: START pydefect-complex (n=2, dopants=['N', 'B'], max_distance=5.0, min_distance=0.30)
+2026-05-24 22:01:35 [INFO ] pydefect_complex.cli: SUPERCELL: /tmp/pd_cli_7oc207m4/supercell_info.json (216 atoms, space group Fd-3m)
+2026-05-24 22:01:35 [INFO ] pydefect_complex.cli: DEFECT TYPES: ['B_C1', 'Va_C1', 'N_C1']
+2026-05-24 22:01:35 [INFO ] pydefect_complex.cli: EXISTING: 1132 entries in defect/complex_defect_in.yaml
+2026-05-24 22:01:35 [INFO ] pydefect_complex.enumerate: ENUMERATE N=2: 7 unique geometries from 1 anchor classes (max_dist=5.0 min_dist=0.3 eps=0.10)
+2026-05-24 22:01:35 [INFO ] pydefect_complex.enumerate: ORIENTATIONS: 7 geometries, 61 total orientations, point groups: C2h=3, D4h=1, D2h=1, C3=1, D3d=1
+2026-05-24 22:01:35 [INFO ] pydefect_complex.enumerate: COMPOSITIONS: 42 (geometry, composition) pairs from 7 geometries and 3 single-defect types across 1 orders
+2026-05-24 22:01:35 [INFO ] pydefect_complex.enumerate: ENTRIES N=2: 42 entries from 7 geometries and 42 composition pairs
+2026-05-24 22:01:35 [INFO ] pydefect_complex.cli: GENERATED: 42 entries (all orders 2..2)
+2026-05-24 22:01:35 [INFO ] pydefect_complex.symmetry: DEDUP: 42 entries → 7 geometric clusters (83.3% reduction)
+2026-05-24 22:01:35 [INFO ] pydefect_complex.symmetry: DEDUP FINAL: 42 entries across 6 compositions after cross-composition dedup
+2026-05-24 22:01:35 [INFO ] pydefect_complex.cli: DEDUP: 42 entries after geometric deduplication
+2026-05-24 22:01:35 [INFO ] pydefect_complex.cli: SKIP: 42 entries already exist, not overwritten
+2026-05-24 22:01:37 [INFO ] pydefect_complex.io: SUMMARY: wrote defect_summary.txt (42 entries, 6 compositions)
+2026-05-24 22:01:37 [INFO ] pydefect_complex.cli: OUTPUT: defect/complex_defect_in.yaml (1132 entries, 0 new, 1132 kept)
+2026-05-24 22:01:37 [INFO ] pydefect_complex.cli: CACHE: N=2 geometry cache: 7 unique configurations (61 orientations)
