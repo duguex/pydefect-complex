@@ -1,13 +1,13 @@
 pydefect_complex_version: 0.1.0
-timestamp: '2026-05-24T22:01:37.371192'
+timestamp: '2026-05-24T23:28:14.047445'
 parameters:
   max_distance_angstrom: 5.0
   min_distance_angstrom: 0.3
-  dopants: [N, B]
+  dopants: [O]
   charges: [0]
-  defect_names: [B_C1, Va_C1, N_C1]
+  defect_names: [Va_C1, O_C1]
 enumerator:
-  n_geometries_cached: {'2': 7}
+  n_geometries_cached: {'2': 7, '3': 109}
 entry_cache:
   orders_cached: []
   n_entries: {}
