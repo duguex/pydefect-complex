@@ -162,7 +162,6 @@ def main(argv: list[str] | None = None) -> None:
         supercell_info, dopants=dopants,
         max_distance=args.max_distance, min_distance=args.min_distance,
         charges=args.charges, verbose=args.verbose,
-        track_pipeline=args.verbose,
         skip_defects=args.geometries_only,
     )
     if not args.geometries_only:
