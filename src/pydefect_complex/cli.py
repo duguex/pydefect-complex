@@ -120,7 +120,7 @@ def main(argv: list[str] | None = None) -> None:
 
     configure_logging(
         verbose=args.verbose,
-        log_file="pydefect_complex.log" if args.verbose else None,
+        log_file="pydefect_complex.log",
     )
 
     dopants = args.dopants if args.dopants is not None else []

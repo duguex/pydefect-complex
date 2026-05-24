@@ -4,37 +4,16 @@ Systematic complex (multi-component) defect generation compatible with [pydefect
 
 Generates N-body defect clusters — vacancy pairs, vacancy+dopant complexes, co-doping — with symmetry-aware site enumeration and distance filtering.
 
-## Quick start
+## Quick start (CLI)
 
-```python
-from pydefect_complex import ComplexDefectMaker
-
-# 1. Create maker from pydefect's supercell_info.json
-maker = ComplexDefectMaker.from_supercell_info(
-    "defect/supercell_info.json",
-    dopants=["N", "B"],
-    max_distance=4.0,     # cutoff for defect-defect edges (Å)
-)
-
-# 2. Enumerate geometries (no chemistry)
-geoms = maker.make_all_pairs()       # N=2
-geoms = maker.make_all_n_body(n=3)   # N-body
-maker.show_geometries(N_max=3)       # human-readable summary
-
-# 3. Assign defect compositions + generate structures
-entries = maker.generate_entries(n=2)
-entries = maker.generate_entries(n=3, dopants=["N", "B"])
-entries = maker.generate_entries(geoms, dopants=["Si"])
-
-# Or generate a specific pair
-entries = maker.make_pair("Va_C1", "N_C1")
-
-# 4. Write pydefect-compatible output
-maker.write(entries, "defect/")                  # POSCAR + prior_info.yaml
-maker.write(entries, "defect/", merge=True)      # also merge into defect_in.yaml
+```bash
+pydefect supercell -p POSCAR --matrix 3 3 3          # 1. supercell_info.json
+pydefect_complex -d N B -n 2                          # 2. complex defects
 ```
 
-Output per defect: `defect/{name}_{charge}/` containing `POSCAR`, `prior_info.yaml`, and `defect_entry.json`.
+Output in ``defect/``: each defect as ``defect/{name}_{charge}/POSCAR`` + ``prior_info.yaml`` + ``defect_entry.json``, plus ``complex_defect_in.yaml``.
+
+See ``examples/`` for a full walkthrough.
 
 ## Pipeline
 
