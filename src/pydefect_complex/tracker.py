@@ -1,6 +1,6 @@
 """Pipeline intermediate result tracker.
 
-Writes numbered stage outputs to a ``_cache/`` subdirectory for
+Writes numbered stage outputs to a ``pipeline_track/`` subdirectory for
 offline inspection.  Each pipeline stage produces one YAML or JSON file.
 
 Usage::
@@ -46,7 +46,7 @@ class PipelineTracker:
         output_dir: str,
         enabled: bool = False,
     ):
-        self._cache_dir = Path(output_dir) / "_cache"
+        self._cache_dir = Path(output_dir) / "pipeline_track"
         self._enabled = enabled
         if enabled:
             self._cache_dir.mkdir(parents=True, exist_ok=True)
