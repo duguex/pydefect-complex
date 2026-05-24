@@ -89,7 +89,7 @@ for r in results:
     print(f"{r['label']:20s} {r['n_atoms']:5d}  {r['n_geom_2']:7d} {r['n_entries_2']:7d} {r['time_2_s']:7.3f}s  {r['n_geom_3']:7d} {r['n_entries_3']:7d} {r['time_3_s']:7.3f}s")
 
 # 保存
-workdir = Path("diamond_example")
+workdir = Path(__file__).parent / "diamond_output"
 workdir.mkdir(exist_ok=True)
 (workdir / "compare_supercells.json").write_text(
     json.dumps(results, indent=2, ensure_ascii=False))

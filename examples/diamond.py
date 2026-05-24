@@ -40,7 +40,7 @@ from pymatgen.core import Structure
 from pydefect.input_maker.supercell_maker import SupercellMaker
 from pydefect_complex import ComplexDefectMaker
 
-workdir = Path("./diamond_example")
+workdir = Path(__file__).parent / "diamond_output"
 workdir.mkdir(exist_ok=True)
 (workdir / "POSCAR").write_text(diamond_poscar)
 
@@ -66,7 +66,7 @@ print(f"缺陷类型: {maker.defect_names}")
 print(f"几何缓存: {dict((k, len(v)) for k, v in maker.enumerator.geometries.items())}")
 # 几何缓存: {}
 
-print(f"条目缓存: {dict((k, len(v)) for k, v in maker._entry_cache.items())}")
+print(f"条目缓存: {dict((k, len(v)) for k, v in maker.entry_cache.items())}")
 # 条目缓存: {}
 #            ↑ 两个缓存都为空
 
@@ -78,7 +78,8 @@ print(f"条目缓存: {dict((k, len(v)) for k, v in maker._entry_cache.items())}
 # ---------------------------------------------------------------------------
 
 t0 = time.perf_counter()
-entries_n2 = maker.make_all_n_body(n=2)
+maker.make_all_n_body(n=2)
+entries_n2 = maker.entry_cache[2]
 t1 = time.perf_counter()
 
 print(f"N=2 耗时: {t1 - t0:.2f}s")
@@ -107,10 +108,10 @@ for i, g in enumerate(geoms_2[:3]):
 #    条目 = 几何构型 + 缺陷组分 + 实际超胞结构 + 元数据。已去重编号。
 # ---------------------------------------------------------------------------
 
-print(f"条目缓存 [N=2]: {len(maker._entry_cache[2])} 个条目")
+print(f"条目缓存 [N=2]: {len(maker.entry_cache[2])} 个条目")
 # 条目缓存 [N=2]: 30 个条目
 
-for e in maker._entry_cache[2][:4]:
+for e in maker.entry_cache[2][:4]:
     print(f"  {e.name:30s}  site={str(e.site_path):20s}  d={e.distance:.2f}Å  "
           f"atoms={len(e.structure)}")
 #   2B_C1.001                      site=('C1', 'C1')         d=3.57Å  atoms=216
@@ -118,7 +119,7 @@ for e in maker._entry_cache[2][:4]:
 #   2B_C1.003                      site=('C1', 'C1')         d=1.54Å  atoms=216
 #   2B_C1.004                      site=('C1', 'C1')         d=2.96Å  atoms=216
 
-e = maker._entry_cache[2][0]
+e = maker.entry_cache[2][0]
 print(f"\n  name             = {e.name}")
 print(f"  complex_defect   = {e.complex_defect}")
 print(f"  site_path        = {e.site_path}")
@@ -144,11 +145,12 @@ print(f"  space_group      = {e.space_group}")
 # 4. 增量计算 N=3 — N=2 完全从缓存复用
 # ---------------------------------------------------------------------------
 
-print(f"当前缓存阶: {sorted(maker._entry_cache.keys())}")
+print(f"当前缓存阶: {sorted(maker.entry_cache.keys())}")
 # 当前缓存阶: [2]
 
 t0 = time.perf_counter()
-entries_n3 = maker.make_all_n_body(n=3)
+maker.make_all_n_body(n=3)
+entries_n3 = maker.entry_cache[3]
 t1 = time.perf_counter()
 
 print(f"N=3 耗时: {t1 - t0:.2f}s")
@@ -170,15 +172,6 @@ print(f"N=2 缓存命中耗时: {t1 - t0:.4f}s")
 # ---------------------------------------------------------------------------
 
 import json
-
-
-def _graph_to_dict(g):
-    return {
-        "host_node_ids": list(g.host_node_ids),
-        "wyckoffs": list(g.wyckoffs),
-        "elements": list(g.elements),
-        "edges": [[i, j, v.tolist()] for i, j, v in g.edges],
-    }
 
 
 def _entry_to_dict(e):
@@ -204,10 +197,10 @@ def _entry_to_dict(e):
 for order, geoms in maker.enumerator.geometries.items():
     path = workdir / f"cache_geometry_N{order}.json"
     path.write_text(json.dumps(
-        [_graph_to_dict(g) for g in geoms], indent=2, ensure_ascii=False))
+        [g.to_dict() for g in geoms], indent=2, ensure_ascii=False))
     print(f"写入 {path.name} ({len(geoms)} 个构型)")
 
-for order, entries in maker._entry_cache.items():
+for order, entries in maker.entry_cache.items():
     path = workdir / f"cache_entries_N{order}.json"
     path.write_text(json.dumps(
         [_entry_to_dict(e) for e in entries], indent=2, ensure_ascii=False))
@@ -218,7 +211,7 @@ for order, entries in maker._entry_cache.items():
 # ---------------------------------------------------------------------------
 
 print(f"切换前: 几何缓存={dict((k, len(v)) for k, v in maker.enumerator.geometries.items())}")
-print(f"        条目缓存={sorted(maker._entry_cache.keys())}")
+print(f"        条目缓存={sorted(maker.entry_cache.keys())}")
 # 切换前: 几何缓存={2: 5, 3: 42}
 #         条目缓存=[2, 3]
 
@@ -227,12 +220,12 @@ print(f"缺陷类型: {maker.defect_names}")
 # 缺陷类型: ['P_C1', 'Va_C1']
 
 print(f"切换后: 几何缓存={dict((k, len(v)) for k, v in maker.enumerator.geometries.items())}  ← 保留")
-print(f"        条目缓存={sorted(maker._entry_cache.keys())}  ← 已清空")
+print(f"        条目缓存={sorted(maker.entry_cache.keys())}  ← 已清空")
 # 切换后: 几何缓存={2: 5, 3: 42}  ← 保留
 #         条目缓存=[]  ← 已清空
 
 t0 = time.perf_counter()
-entries_p = maker.make_all_n_body(n=2)
+entries_p = maker.generate_entries(n_or_geometries=2)
 t1 = time.perf_counter()
 print(f"P 掺杂 N=2 耗时: {t1 - t0:.2f}s (仅组分分配+去重，无需几何枚举)")
 # P 掺杂 N=2 耗时: 0.12s (仅组分分配+去重，无需几何枚举)
