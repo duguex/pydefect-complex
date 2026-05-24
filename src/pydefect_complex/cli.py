@@ -69,6 +69,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Charge states to generate (default: 0).",
     )
     parser.add_argument(
+        "--structures",
+        action="store_true",
+        help="Write per-defect POSCAR directories (default: only YAML + summary).",
+    )
+    parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         help="Verbose DEBUG-level logging + pipeline tracking.",
@@ -124,118 +129,122 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     dopants = args.dopants if args.dopants is not None else []
-    logger.info(
-        "START pydefect-complex (n=%d, dopants=%s, max_distance=%.1f, min_distance=%.2f)",
-        args.n_body, dopants or "(intrinsic only)",
-        args.max_distance, args.min_distance,
-    )
+    n = args.n_body
 
-    # ------------------------------------------------------------------
-    # 1. Load supercell info
-    # ------------------------------------------------------------------
+    # Log the full command as typed by the user
+    cmd = "pydefect_complex " + " ".join(argv if argv is not None else sys.argv[1:])
+    logger.info("COMMAND: %s", cmd)
+
+    # ==========================================================
+    # 1. Input
+    # ==========================================================
     supercell_info = _load_supercell_info()
+    logger.info("ARGS: n_body=%d dopants=%s max_distance=%.1f min_distance=%.2f charges=%s",
+                n, dopants or "(intrinsic)", args.max_distance, args.min_distance, args.charges)
 
-    # ------------------------------------------------------------------
-    # 2. Build maker (HostGraph, enumerator, single-defect list)
-    # ------------------------------------------------------------------
+    # ==========================================================
+    # 2. Defect set (from pydefect DefectSetMaker)
+    # ==========================================================
     from .maker import ComplexDefectMaker
-
     maker = ComplexDefectMaker(
-        supercell_info,
-        dopants=dopants,
-        max_distance=args.max_distance,
-        min_distance=args.min_distance,
-        charges=args.charges,
-        verbose=args.verbose,
+        supercell_info, dopants=dopants,
+        max_distance=args.max_distance, min_distance=args.min_distance,
+        charges=args.charges, verbose=args.verbose,
         track_pipeline=args.verbose,
     )
-    logger.info("DEFECT TYPES: %s", maker.defect_names)
+    logger.info("DEFECTS: %d types: %s", len(maker.single_defects), maker.defect_names)
 
-    # ------------------------------------------------------------------
-    # 3. Read existing complex_defect_in.yaml for skip logic
-    # ------------------------------------------------------------------
+    # ==========================================================
+    # 3. Existing entries (skip logic)
+    # ==========================================================
     existing_yaml, existing_names = _load_existing_complex_defect_in()
-    if existing_names:
-        logger.info("EXISTING: %d entries in defect/complex_defect_in.yaml", len(existing_names))
+    logger.info("EXISTING: %d entries in defect/complex_defect_in.yaml%s",
+                len(existing_names),
+                " (skip)" if existing_names else "")
 
-    # ------------------------------------------------------------------
-    # 4. Generate entries for all orders 2..n
-    #    (generates geometries + compositions + structures in one pass)
-    # ------------------------------------------------------------------
+    # ==========================================================
+    # 4. Geometry cache (cross-process)
+    # ==========================================================
+    cached_orders = maker.load_geometry_cache("defect")
+    missing: set[int] = set()
+    for order in range(2, n + 1):
+        if order not in cached_orders:
+            missing.add(order)
+    if not missing:
+        logger.info("GEOMETRY: N=%d..%d fully cached, no enumeration needed", 2, n)
+    else:
+        logger.info("GEOMETRY: enumerate N=%s (cached: N=%s)", sorted(missing), sorted(cached_orders) if cached_orders else "none")
+
+    # ==========================================================
+    # 5. Generate entries (geometries + compositions + structures)
+    # ==========================================================
     from .enumerate import generate_all_entries
     from .symmetry import deduplicate
     from .io import write_all, write_complex_defect_in_yaml, write_summary
 
     all_entries = generate_all_entries(
         maker.enumerator, supercell_info,
-        maker.single_defects, N_max=args.n_body,
+        maker.single_defects, N_max=n,
         charges=args.charges,
         show_progress=args.verbose,
     )
-    logger.info("GENERATED: %d entries (all orders 2..%d)", len(all_entries), args.n_body)
 
-    # ------------------------------------------------------------------
-    # 5. Cross-composition geometric deduplication
-    # ------------------------------------------------------------------
-    final_entries = deduplicate(
-        all_entries, maker.host_graph, args.max_distance,
-    )
-    logger.info("DEDUP: %d entries after geometric deduplication", len(final_entries))
+    # ==========================================================
+    # 6. Deduplication
+    # ==========================================================
+    final_entries = deduplicate(all_entries, maker.host_graph, args.max_distance)
 
-    # ------------------------------------------------------------------
-    # 6. Filter: skip entries already recorded in complex_defect_in.yaml
-    # ------------------------------------------------------------------
+    # ==========================================================
+    # 7. Filter new entries
+    # ==========================================================
     new_entries = [e for e in final_entries if e.name not in existing_names]
+    kept = len(existing_names)
     skipped = len(final_entries) - len(new_entries)
-    if skipped:
-        logger.info("SKIP: %d entries already exist, not overwritten", skipped)
+    logger.info("ENTRIES: %d generated, %d after dedup, %d new, %d skipped (already exist)",
+                len(all_entries), len(final_entries), len(new_entries), skipped)
 
     if not new_entries and not existing_names:
-        logger.warning("No entries generated — check supercell_info.json and dopants")
+        logger.warning("EMPTY: no entries generated — check supercell_info.json and dopants")
         return
 
-    # ------------------------------------------------------------------
-    # 7. Write output
-    # ------------------------------------------------------------------
+    # ==========================================================
+    # 8. Write output
+    # ==========================================================
     defect_dir = Path("defect")
     defect_dir.mkdir(parents=True, exist_ok=True)
 
-    if new_entries:
+    if new_entries and args.structures:
         complex_defect_in_new = write_all(
             new_entries, str(defect_dir), create_defect_json=True,
         )
-        logger.info(
-            "POSCAR: wrote %d new entries to %s/",
-            len(new_entries), defect_dir,
-        )
+    elif new_entries:
+        complex_defect_in_new = {
+            e.name: e.complex_defect.charges for e in new_entries
+        }
+
     else:
         complex_defect_in_new = {}
 
-    # Summary: covers all entries from this run
     write_summary(final_entries, str(defect_dir))
-
-    # Parameters: current run metadata
     maker._write_parameters(str(defect_dir))
 
-    # Merge complex_defect_in.yaml (preserve existing, append new)
     combined = dict(existing_yaml)
     combined.update(complex_defect_in_new)
     write_complex_defect_in_yaml(combined, str(defect_dir))
-    logger.info(
-        "OUTPUT: %s (%d entries, %d new, %d kept)",
-        defect_dir / "complex_defect_in.yaml",
-        len(combined), len(new_entries), len(existing_names),
-    )
+    logger.info("OUTPUT: %s (%d total, %d new, %d kept)",
+                defect_dir / "complex_defect_in.yaml",
+                len(combined), len(new_entries), kept)
+    if not args.structures and new_entries:
+        logger.info("STRUCTURES: skipped (use --structures to write POSCAR dirs)")
 
-    # ------------------------------------------------------------------
-    # 8. Geometry cache status
-    # ------------------------------------------------------------------
+    # ==========================================================
+    # 9. Save geometry cache for next run
+    # ==========================================================
+    maker.save_geometry_cache(str(defect_dir))
     for order, geoms in maker.enumerator.geometries.items():
-        logger.info(
-            "CACHE: N=%d geometry cache: %d unique configurations (%.0f orientations)",
-            order, len(geoms),
-            sum(max(0, g.n_orientations) for g in geoms),
-        )
+        n_orient = sum(max(0, g.n_orientations) for g in geoms)
+        logger.info("CACHE: N=%d %d geometries %d orientations",
+                    order, len(geoms), n_orient)
 
 
 if __name__ == "__main__":
