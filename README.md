@@ -35,7 +35,7 @@ See ``examples/`` for a full walkthrough with ``pydefect_complex.log``.
 ## Usage
 
 ```
-pydefect_complex [-d DOPANTS ...] [-n N_BODY] [-g] [--structures] [-v]
+pydefect_complex [-d DOPANTS ...] [-n N_BODY] [-g] [--structures] [--workers N] [-v]
 ```
 
 | Flag | Default | Description |
@@ -43,11 +43,14 @@ pydefect_complex [-d DOPANTS ...] [-n N_BODY] [-g] [--structures] [-v]
 | `-d, --dopants` | intrinsic only | Dopant elements (e.g. ``-d N B``) |
 | `-n, --n-body` | 2 | Maximum order (generates 2..n) |
 | `-g, --geometries-only` | off | Enumerate geometry only, no entries or output files |
-| `--max-distance` | 5.0 Å | Defect-defect edge cutoff |
+| `--max-distance` | 2.5 Å | Defect-defect edge cutoff |
 | `--min-distance` | 0.3 Å | Minimum defect separation |
 | `--charges` | [0] | Charge states to generate |
 | `--structures` | off | Write per-defect POSCAR directories |
+| `--workers` | CPU count | Worker processes for parallel enumeration + structure generation |
 | `-v, --verbose` | off | Debug logging + pipeline tracking |
+
+Progress bars are shown automatically when `tqdm` is installed (``pip install tqdm``).
 
 Geometry cache (``defect/geometries_N*.yaml``) is written on every run and
 automatically loaded on the next run — geometry enumeration is never repeated
@@ -99,3 +102,5 @@ pytest -k "test_make_pair"      # keyword match
 ```
 
 Performance: N=2 < 2s, N=3 < 20s (diamond 128-atom supercell, 4.0 Å cutoff).
+Geometry enumeration and structure generation are automatically parallelized
+across all available CPU cores (``--workers`` to override).

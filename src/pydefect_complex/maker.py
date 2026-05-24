@@ -76,7 +76,7 @@ class ComplexDefectMaker:
         self,
         supercell_info: "SupercellInfo",
         dopants: Optional[list[str]] = None,
-        max_distance: float = 5.0,
+        max_distance: float = 2.5,
         min_distance: float = 0.3,
         charges: list[int] | None = None,
         verbose: bool = False,
@@ -123,7 +123,7 @@ class ComplexDefectMaker:
 
     @classmethod
     def from_supercell_info(
-        cls, path: str, dopants=None, max_distance=5.0, min_distance=0.3,
+        cls, path: str, dopants=None, max_distance=2.5, min_distance=0.3,
         charges=None, n_workers=None,
     ) -> "ComplexDefectMaker":
         from pydefect.input_maker.supercell_info import SupercellInfo

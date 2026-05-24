@@ -52,7 +52,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--max-distance",
         type=float,
-        default=5.0,
+        default=2.5,
         help="Maximum defect-defect distance in Angstrom (default: 5.0).",
     )
     parser.add_argument(

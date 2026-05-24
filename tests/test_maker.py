@@ -48,7 +48,7 @@ class TestMakerFromSupercellInfo:
         s = maker.summary()
         assert s["n_single_defects"] > 0
         assert s["dopants"] == ["N", "B"]
-        assert s["max_distance"] == 5.0
+        assert s["max_distance"] == 2.5
 
     def test_make_pair(self, diamond_supercell_info):
         maker = ComplexDefectMaker(diamond_supercell_info)
