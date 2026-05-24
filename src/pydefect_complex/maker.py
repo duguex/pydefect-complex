@@ -16,10 +16,11 @@ from __future__ import annotations
 
 import itertools
 import json
-import logging
+from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 import numpy as np
+import yaml
 
 if TYPE_CHECKING:
     from pydefect.input_maker.supercell_info import SupercellInfo
@@ -32,10 +33,21 @@ from .enumerate import (
     assign_compositions,
     generate_all_entries,
 )
-from .symmetry import deduplicate
+from .symmetry import deduplicate, verify_dedup
 from .io import write_all, write_complex_defect_in_yaml, merge_defect_in, write_summary
+from .log import get_logger
+from .tracker import PipelineTracker
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+
+def _group_by_n_defects(entries):
+    """Group entries by n_defects for populating entry_cache."""
+    result: dict[int, list] = {}
+    for e in entries:
+        n = e.complex_defect.n_defects
+        result.setdefault(n, []).append(e)
+    return result
 
 
 class ComplexDefectMaker:
@@ -67,12 +79,17 @@ class ComplexDefectMaker:
         max_distance: float = 5.0,
         min_distance: float = 0.3,
         charges: list[int] | None = None,
+        verbose: bool = False,
+        track_pipeline: bool = False,
+        show_progress: bool = False,
     ):
         self.supercell_info = supercell_info
         self.dopants = dopants or []
         self.max_distance = max_distance
         self.min_distance = min_distance
         self._charges = charges if charges is not None else [0]
+        self._track_pipeline = track_pipeline
+        self._show_progress = show_progress
 
         from pydefect.input_maker.defect_set_maker import DefectSetMaker
         maker = DefectSetMaker(supercell_info, dopants=self.dopants)
@@ -87,6 +104,13 @@ class ComplexDefectMaker:
             min_distance=min_distance,
             pristine_structure=supercell_info.structure,
         )
+
+        self._entry_cache: dict[int, list[ComplexDefectEntry]] = {}
+        self._tracker = PipelineTracker(".", enabled=track_pipeline)
+
+        if verbose:
+            from .log import configure_logging
+            configure_logging(level=10, verbose=True)  # DEBUG
 
     # --- Class methods ---
 
@@ -118,6 +142,16 @@ class ComplexDefectMaker:
     def defect_pairs(self) -> list[tuple]:
         return list(itertools.combinations_with_replacement(self._single_defects, 2))
 
+    @property
+    def entry_cache(self) -> dict[int, list["ComplexDefectEntry"]]:
+        """Cached entries by order. Populated by generate_entries()."""
+        return dict(self._entry_cache)
+
+    def _invalidate_entry_cache(self):
+        if self._entry_cache:
+            logger.debug("ENTRY CACHE: invalidated (%d orders cleared)", len(self._entry_cache))
+            self._entry_cache.clear()
+
     def set_dopants(self, dopants: Optional[list[str]] = None):
         """Replace dopants without resetting geometry enumeration cache.
 
@@ -136,6 +170,11 @@ class ComplexDefectMaker:
         self._single_defects = list(maker.defect_set)
         self._defect_map = {d.name: d for d in self._single_defects}
         self._defect_in = {d.name: d.charges for d in self._single_defects}
+        self._invalidate_entry_cache()
+        logger.info(
+            "DOPANTS: switched to %s (%d defect types, geometry cache preserved: %d orders)",
+            self.dopants, len(self._single_defects), len(self.enumerator.geometries),
+        )
 
     # --- Geometry enumeration (public) ---
 
@@ -158,11 +197,9 @@ class ComplexDefectMaker:
     ) -> list[ComplexDefectGraph]:
         """Enumerate geometrically unique N-body site configurations.
 
-        Default workflow — returns geometries only, no defect chemistry.
-        Use generate_entries() afterwards to assign compositions and
-        generate structures.
-
         Returns list[ComplexDefectGraph] for order n.
+        As a side effect, also populates ``entry_cache`` for order n
+        by running composition assignment + structure generation + dedup.
         """
         if n < 2:
             raise ValueError(f"n must be >= 2, got {n}")
@@ -177,9 +214,19 @@ class ComplexDefectMaker:
             )
             self.max_distance = max_d
             self.min_distance = min_d
+            self._invalidate_entry_cache()
 
         self.enumerator.enumerate(n)
-        return list(self.enumerator.geometries.get(n, []))
+        geoms = list(self.enumerator.geometries.get(n, []))
+
+        # Populate entry cache if not already cached for this order
+        if n not in self._entry_cache and self._single_defects:
+            try:
+                self.generate_entries(n_or_geometries=n, deduplicate_symmetry=True)
+            except Exception:
+                logger.debug("Failed to populate entry cache for N=%d", n, exc_info=True)
+
+        return geoms
 
     def make_all_pairs(
         self, max_distance=None, min_distance=None,
@@ -218,17 +265,29 @@ class ComplexDefectMaker:
         max_d = max_distance if max_distance is not None else self.max_distance
         min_d = min_distance if min_distance is not None else self.min_distance
 
-        if max_d != self.enumerator.max_distance or min_d != self.enumerator.min_distance:
+        need_new = (
+            max_d != self.enumerator.max_distance
+            or min_d != self.enumerator.min_distance
+        )
+        if need_new:
             self.enumerator = ComplexDefectEnumerator(
                 self.host_graph, max_distance=max_d, min_distance=min_d,
                 pristine_structure=self.supercell_info.structure,
             )
             self.max_distance = max_d
             self.min_distance = min_d
+            self._invalidate_entry_cache()
+
+        # Entry cache hit for integer N
+        if isinstance(n_or_geometries, int) and n_or_geometries in self._entry_cache:
+            logger.debug(
+                "ENTRY CACHE HIT: returning %d entries for N=%d",
+                len(self._entry_cache[n_or_geometries]), n_or_geometries,
+            )
+            return list(self._entry_cache[n_or_geometries])
 
         if isinstance(n_or_geometries, int):
             n = n_or_geometries
-            # Enumerate if not cached
             self.enumerator.enumerate(n)
             geometries = self.enumerator.geometries.get(n, [])
         else:
@@ -241,13 +300,27 @@ class ComplexDefectMaker:
             self.enumerator, self.supercell_info,
             self._single_defects, N_max=n,
             charges=_charges,
+            show_progress=self._show_progress,
         )
 
         logger.info("Total entries before dedup: %d", len(entries))
 
         if deduplicate_symmetry and entries:
-            entries = deduplicate(entries, self.host_graph, max_d)
+            entries = deduplicate(
+                entries, self.host_graph, max_d, tracker=self._tracker,
+            )
             logger.info("After dedup: %d entries", len(entries))
+            if self._tracker.enabled:
+                report = verify_dedup(entries, self.host_graph)
+                self._tracker.write_dedup_verification(report)
+
+        # Populate entry cache — split deduplicated entries by n_defects
+        for order, order_entries in _group_by_n_defects(entries).items():
+            self._entry_cache[order] = order_entries
+
+        # Track intermediate results
+        if self._tracker.enabled:
+            self._tracker.write_entries_metadata(entries)
 
         # Filter to requested geometries/order
         if isinstance(n_or_geometries, list):
@@ -296,28 +369,76 @@ class ComplexDefectMaker:
         return self.make_complex([d1, d2], max_distance, min_distance)
 
     def show_geometries(self, N_max: int = 2):
-        """Print a human-readable geometry summary (no chemistry)."""
+        """Log a human-readable geometry summary (no chemistry)."""
         geo = self.enumerate_geometries(N_max)
+        lines = []
         for n in sorted(geo):
             geoms = geo[n]
-            print(f"\n=== N={n} 几何构型 ({len(geoms)} 个) ===")
+            lines.append(f"\n=== N={n} geometries ({len(geoms)} total) ===")
             for i, g in enumerate(geoms):
                 dists = sorted([float(np.linalg.norm(v)) for _, _, v in g.edges])
                 ds = ", ".join(f"{d:.2f}" for d in dists)
-                print(f"  G{i:3d}: edges={len(g.edges)} dists=[{ds}] "
-                      f"n_orient={g.n_orientations} pg={g.point_group} "
-                      f"wyckoffs={g.wyckoffs}")
+                lines.append(
+                    f"  G{i:3d}: edges={len(g.edges)} dists=[{ds}] "
+                    f"n_orient={g.n_orientations} pg={g.point_group} "
+                    f"wyckoffs={g.wyckoffs}"
+                )
+                if i >= 19 and len(geoms) > 20:
+                    lines.append(f"  ... {len(geoms) - 20} more")
+                    break
+        logger.info("GEOMETRIES:\n%s", "\n".join(lines))
 
     def save_geometry_cache(self, output_dir: str = "."):
-        """Write geometry cache to JSON files for later reuse."""
-        import json
-        from pathlib import Path
+        """Write geometry cache to YAML files flat in output_dir."""
         out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
         for n, geoms in self.enumerator.geometries.items():
-            path = out / f"cache_geometry_N{n}.json"
-            path.write_text(json.dumps(
-                [g.to_dict() for g in geoms], indent=2, ensure_ascii=False))
-            logger.info("Saved %d geometries to %s", len(geoms), path)
+            path = out / f"geometries_N{n}.yaml"
+            data = {
+                "max_distance": self.enumerator.max_distance,
+                "min_distance": self.enumerator.min_distance,
+                "order": n,
+                "n_geometries": len(geoms),
+                "geometries": [g.to_dict() for g in geoms],
+            }
+            with open(path, "w") as f:
+                yaml.dump(data, f, default_flow_style=None, sort_keys=False)
+            logger.info("CACHE: saved %d geometries to %s", len(geoms), path)
+
+    def load_geometry_cache(self, cache_dir: str = "defect") -> set[int]:
+        """Load cached geometries from flat YAML files in cache_dir.
+
+        Reads ``geometries_N*.yaml`` from *cache_dir* (typically ``defect/``).
+        Skips files whose max_distance or min_distance differ from current settings.
+
+        Returns:
+            Set of orders loaded (e.g. ``{2}`` or ``{2, 3}``).
+        """
+        out = Path(cache_dir)
+        if not out.exists():
+            return set()
+
+        loaded: set[int] = set()
+        for path in sorted(out.glob("geometries_N*.yaml")):
+            data = yaml.safe_load(path.read_text())
+            if (data["max_distance"] == self.enumerator.max_distance
+                    and data["min_distance"] == self.enumerator.min_distance):
+                geoms = [ComplexDefectGraph.from_dict(g) for g in data["geometries"]]
+                n = data["order"]
+                self.enumerator._cache[n] = geoms
+                loaded.add(n)
+                logger.info(
+                    "CACHE HIT: N=%d (%d geometries) from %s "
+                    "(max_distance=%.1f, min_distance=%.2f)",
+                    n, len(geoms), path, data["max_distance"], data["min_distance"],
+                )
+            else:
+                logger.info(
+                    "CACHE SKIP: %s (max_distance=%.1f/%.1f or min_distance=%.2f/%.2f mismatch)",
+                    path, data["max_distance"], self.enumerator.max_distance,
+                    data["min_distance"], self.enumerator.min_distance,
+                )
+        return loaded
 
     @staticmethod
     def load_geometries(path: str) -> list[ComplexDefectGraph]:
@@ -331,9 +452,46 @@ class ComplexDefectMaker:
         yaml_path = write_complex_defect_in_yaml(complex_defect_in, output_dir)
         summary_path = write_summary(entries, output_dir)
         logger.info("Summary written to %s", summary_path)
+        self._write_parameters(output_dir)
+        logger.info("Parameters written to %s/parameters.yaml", output_dir)
         if merge:
             merge_defect_in(output_dir)
         return yaml_path
+
+    def _write_parameters(self, output_dir: str):
+        """Write parameters.yaml with full run metadata."""
+        import datetime
+        try:
+            from importlib.metadata import version as pkg_version
+            ver = pkg_version("pydefect-complex")
+        except Exception:
+            ver = "0.1.0-dev"
+
+        params = {
+            "pydefect_complex_version": ver,
+            "timestamp": datetime.datetime.now().isoformat(),
+            "parameters": {
+                "max_distance_angstrom": self.max_distance,
+                "min_distance_angstrom": self.min_distance,
+                "dopants": self.dopants,
+                "charges": self._charges,
+                "defect_names": self.defect_names,
+            },
+            "enumerator": {
+                "n_geometries_cached": {
+                    str(k): len(v) for k, v in self.enumerator.geometries.items()
+                },
+            },
+            "entry_cache": {
+                "orders_cached": sorted(self._entry_cache.keys()),
+                "n_entries": {
+                    str(k): len(v) for k, v in self._entry_cache.items()
+                },
+            },
+        }
+        path = Path(output_dir) / "parameters.yaml"
+        with open(path, "w") as f:
+            yaml.dump(params, f, default_flow_style=None, sort_keys=False)
 
     # --- Info ---
 

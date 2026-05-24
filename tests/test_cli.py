@@ -122,7 +122,7 @@ class TestCLIMake:
         orig_dir = os.getcwd()
         try:
             os.chdir(str(tmp_path))
-            main(["-d", "N", "B", "-n", "2", "--max-distance", "4.0"])
+            main(["-d", "N", "B", "-n", "2", "--max-distance", "4.0", "--structures"])
 
             defect_dir = tmp_path / "defect"
             assert (defect_dir / "complex_defect_in.yaml").exists()
