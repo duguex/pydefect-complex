@@ -83,6 +83,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Verbose DEBUG-level logging + pipeline tracking.",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=0,
+        help="Number of worker processes (0 = CPU count, default).",
+    )
 
     parsed = parser.parse_args(argv)
 
@@ -151,13 +157,16 @@ def main(argv: list[str] | None = None) -> None:
     # 2. Defect set (from pydefect DefectSetMaker)
     # ==========================================================
     from .maker import ComplexDefectMaker
+    n_workers = args.workers if args.workers > 0 else None
     maker = ComplexDefectMaker(
         supercell_info, dopants=dopants,
         max_distance=args.max_distance, min_distance=args.min_distance,
         charges=args.charges, verbose=args.verbose,
         track_pipeline=args.verbose,
+        skip_defects=args.geometries_only,
     )
-    logger.info("DEFECTS: %d types: %s", len(maker.single_defects), maker.defect_names)
+    if not args.geometries_only:
+        logger.info("DEFECTS: %d types: %s", len(maker.single_defects), maker.defect_names)
 
     # ==========================================================
     # 3. Existing entries (skip logic)
@@ -208,13 +217,14 @@ def main(argv: list[str] | None = None) -> None:
         maker.enumerator, supercell_info,
         maker.single_defects, N_max=n,
         charges=args.charges,
-        show_progress=args.verbose,
     )
 
     # ==========================================================
     # 8. Deduplication
     # ==========================================================
-    final_entries = deduplicate(all_entries, maker.host_graph, args.max_distance)
+    final_entries = deduplicate(
+        all_entries, maker.host_graph, args.max_distance,
+    )
 
     # ==========================================================
     # 9. Filter new entries

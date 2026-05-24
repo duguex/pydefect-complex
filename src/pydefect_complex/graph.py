@@ -48,6 +48,15 @@ class HostGraph:
         self.lattice = np.asarray(self.lattice, dtype=float)
         self._kdtree = KDTree([n.frac_coord for n in self.nodes])
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state.pop('_kdtree', None)
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self._kdtree = KDTree([n.frac_coord for n in self.nodes])
+
     @classmethod
     def from_supercell_info(cls, supercell_info: "SupercellInfo") -> "HostGraph":
         sc = supercell_info.structure

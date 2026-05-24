@@ -81,7 +81,8 @@ class ComplexDefectMaker:
         charges: list[int] | None = None,
         verbose: bool = False,
         track_pipeline: bool = False,
-        show_progress: bool = False,
+        n_workers: int | None = None,
+        skip_defects: bool = False,
     ):
         self.supercell_info = supercell_info
         self.dopants = dopants or []
@@ -89,20 +90,26 @@ class ComplexDefectMaker:
         self.min_distance = min_distance
         self._charges = charges if charges is not None else [0]
         self._track_pipeline = track_pipeline
-        self._show_progress = show_progress
-
-        from pydefect.input_maker.defect_set_maker import DefectSetMaker
-        maker = DefectSetMaker(supercell_info, dopants=self.dopants)
-        self._single_defects = list(maker.defect_set)
-        self._defect_map = {d.name: d for d in self._single_defects}
-        self._defect_in = {d.name: d.charges for d in self._single_defects}
+        self._n_workers = n_workers
 
         self.host_graph = HostGraph.from_supercell_info(supercell_info)
+
+        if skip_defects:
+            self._single_defects = []
+            self._defect_map = {}
+            self._defect_in = {}
+        else:
+            from pydefect.input_maker.defect_set_maker import DefectSetMaker
+            dsm = DefectSetMaker(supercell_info, dopants=self.dopants)
+            self._single_defects = list(dsm.defect_set)
+            self._defect_map = {d.name: d for d in self._single_defects}
+            self._defect_in = {d.name: d.charges for d in self._single_defects}
         self.enumerator = ComplexDefectEnumerator(
             self.host_graph,
             max_distance=max_distance,
             min_distance=min_distance,
             pristine_structure=supercell_info.structure,
+            n_workers=n_workers,
         )
 
         self._entry_cache: dict[int, list[ComplexDefectEntry]] = {}
@@ -117,12 +124,12 @@ class ComplexDefectMaker:
     @classmethod
     def from_supercell_info(
         cls, path: str, dopants=None, max_distance=5.0, min_distance=0.3,
-        charges=None,
+        charges=None, n_workers=None,
     ) -> "ComplexDefectMaker":
         from pydefect.input_maker.supercell_info import SupercellInfo
         with open(path) as f:
             data = json.load(f)
-        return cls(SupercellInfo.from_dict(data), dopants, max_distance, min_distance, charges)
+        return cls(SupercellInfo.from_dict(data), dopants, max_distance, min_distance, charges, n_workers=n_workers)
 
     # --- Properties ---
 
@@ -211,6 +218,7 @@ class ComplexDefectMaker:
             self.enumerator = ComplexDefectEnumerator(
                 self.host_graph, max_distance=max_d, min_distance=min_d,
                 pristine_structure=self.supercell_info.structure,
+                n_workers=self._n_workers,
             )
             self.max_distance = max_d
             self.min_distance = min_d
@@ -273,6 +281,7 @@ class ComplexDefectMaker:
             self.enumerator = ComplexDefectEnumerator(
                 self.host_graph, max_distance=max_d, min_distance=min_d,
                 pristine_structure=self.supercell_info.structure,
+                n_workers=self._n_workers,
             )
             self.max_distance = max_d
             self.min_distance = min_d
@@ -300,7 +309,6 @@ class ComplexDefectMaker:
             self.enumerator, self.supercell_info,
             self._single_defects, N_max=n,
             charges=_charges,
-            show_progress=self._show_progress,
         )
 
         logger.info("Total entries before dedup: %d", len(entries))
@@ -353,6 +361,7 @@ class ComplexDefectMaker:
             self.enumerator = ComplexDefectEnumerator(
                 self.host_graph, max_distance=max_d, min_distance=min_d,
                 pristine_structure=self.supercell_info.structure,
+                n_workers=self._n_workers,
             )
 
         all_entries = generate_all_entries(

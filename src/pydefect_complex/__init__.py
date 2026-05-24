@@ -16,6 +16,7 @@ from .core import ComplexDefect
 from .structure import ComplexDefectEntry
 from .graph import HostGraph, ComplexDefectGraph, equivalent
 from .enumerate import ComplexDefectEnumerator
+from .log import configure_logging, get_logger
 
 __all__ = [
     "ComplexDefectMaker",
@@ -25,4 +26,6 @@ __all__ = [
     "HostGraph",
     "ComplexDefectEnumerator",
     "equivalent",
+    "configure_logging",
+    "get_logger",
 ]

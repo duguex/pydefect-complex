@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -17,6 +18,23 @@ if TYPE_CHECKING:
 
 from .core import ComplexDefect, _get_element, _is_interstitial
 from .graph import HostGraph, ComplexDefectGraph, _edge_list, equivalent
+from .log import get_logger
+
+logger = get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Optional progress bar helper
+# ---------------------------------------------------------------------------
+
+
+def _maybe_tqdm(iterable, **kwargs):
+    """Wrap *iterable* in tqdm if installed, otherwise return as-is."""
+    try:
+        from tqdm import tqdm
+        return tqdm(iterable, **kwargs)
+    except ImportError:
+        return iterable
 
 
 # ---------------------------------------------------------------------------
@@ -45,12 +63,14 @@ class ComplexDefectEnumerator:
         max_distance: float = 5.0,
         min_distance: float = 0.3,
         pristine_structure=None,
+        n_workers: int | None = None,
     ):
         self.host_graph = host_graph
         self.max_distance = max_distance
         self.min_distance = min_distance
         self.pristine_structure = pristine_structure
         self._cache: dict[int, list[ComplexDefectGraph]] = {}
+        self.n_workers = n_workers if n_workers is not None else max(1, os.cpu_count() or 1)
 
     @property
     def geometries(self) -> dict[int, list[ComplexDefectGraph]]:
@@ -61,6 +81,10 @@ class ComplexDefectEnumerator:
         self, N_max: int, eps: float = 0.1,
     ) -> dict[int, list[ComplexDefectGraph]]:
         """Enumerate all geometrically unique N-node subgraphs for orders 2..N_max.
+
+        Args:
+            N_max: Maximum number of nodes (>= 2).
+            eps: Geometric equivalence tolerance (Å).
 
         Returns:
             {2: [ComplexDefectGraph, ...], 3: [...], ..., N_max: [...]}
@@ -74,6 +98,7 @@ class ComplexDefectEnumerator:
         # Reuse cache if already computed
         max_cached = max(self._cache.keys()) if self._cache else 0
         if max_cached >= N_max:
+            logger.debug("ENUMERATE: cache hit for N_max=%d (max_cached=%d)", N_max, max_cached)
             return {k: v for k, v in self._cache.items() if k <= N_max}
 
         # Bootstrap N=2 if needed
@@ -83,7 +108,14 @@ class ComplexDefectEnumerator:
 
         # Apriori: k → k+1
         start_k = max(2, max_cached)
-        for k in range(start_k, N_max):
+        orders_iter = range(start_k, N_max)
+        if start_k < N_max:
+            orders_iter = _maybe_tqdm(
+                orders_iter,
+                desc="Enumerating geometries",
+                unit="order",
+            )
+        for k in orders_iter:
             if k + 1 not in self._cache:
                 self._cache[k + 1] = self._extend_order(k, eps)
                 self._compute_orientations(self._cache[k + 1])
@@ -113,6 +145,17 @@ class ComplexDefectEnumerator:
             G.n_orientations = n_orient
             G.point_group = pg
 
+        if geometries and any(G.point_group for G in geometries):
+            from collections import Counter
+            pg_counts = Counter(G.point_group for G in geometries if G.point_group)
+            pg_summary = ", ".join(f"{pg}={n}" for pg, n in pg_counts.most_common(8))
+            n_orient = sum(max(0, G.n_orientations) for G in geometries)
+            logger.info(
+                "ORIENTATIONS: %d geometries, %d total orientations, "
+                "point groups: %s",
+                len(geometries), n_orient, pg_summary,
+            )
+
     def _enumerate_2(self, eps: float) -> list[ComplexDefectGraph]:
         """Generate all unique 2-node geometries from anchor+neighbor pairs.
 
@@ -121,7 +164,13 @@ class ComplexDefectEnumerator:
         geometries: list[ComplexDefectGraph] = []
         seen_anchor_classes: set[tuple[str, str]] = set()
 
-        for anchor in self.host_graph.nodes:
+        anchor_iterator = _maybe_tqdm(
+            self.host_graph.nodes,
+            desc="N=2 anchors",
+            unit=" anchor",
+            leave=False,
+        )
+        for anchor in anchor_iterator:
             anchor_class = (anchor.wyckoff, anchor.element)
             if anchor_class in seen_anchor_classes:
                 continue
@@ -150,18 +199,35 @@ class ComplexDefectEnumerator:
                 if not any(equivalent(G, g, eps) for g in geometries):
                     geometries.append(G)
 
+        logger.info(
+            "ENUMERATE N=2: %d unique geometries from %d anchor classes "
+            "(max_dist=%.1f min_dist=%.1f eps=%.2f)",
+            len(geometries), len(seen_anchor_classes),
+            self.max_distance, self.min_distance, eps,
+        )
         return geometries
 
     def _extend_order(self, k: int, eps: float) -> list[ComplexDefectGraph]:
         """Extend unique k-geometries to (k+1)-geometries.
 
-        For each unique G_k, finds all external neighbors, builds
-        G_{k+1} = G_k ∪ {neighbor}, and keeps only geometrically
-        unique results.
+        Dispatches to serial or parallel implementation based on
+        ``self.n_workers``.
         """
+        if self.n_workers <= 1:
+            return self._extend_order_serial(k, eps)
+        return self._extend_order_parallel(k, eps)
+
+    def _extend_order_serial(self, k: int, eps: float) -> list[ComplexDefectGraph]:
+        """Serial extension: k → k+1."""
         result: list[ComplexDefectGraph] = []
 
-        for G_k in self._cache[k]:
+        iterator = _maybe_tqdm(
+            self._cache[k],
+            desc=f"N={k} → {k+1}",
+            unit=f" N={k} geom",
+            leave=False,
+        )
+        for G_k in iterator:
             ext_neighbors = self.host_graph.neighbors_of_set(
                 set(G_k.host_node_ids), self.max_distance,
             )
@@ -199,7 +265,212 @@ class ComplexDefectEnumerator:
                 if not any(equivalent(G_next, g, eps) for g in result):
                     result.append(G_next)
 
+        logger.info(
+            "ENUMERATE N=%d: %d unique geometries from %d N=%d geometries",
+            k + 1, len(result), len(self._cache[k]), k,
+        )
         return result
+
+    def _extend_order_parallel(self, k: int, eps: float) -> list[ComplexDefectGraph]:
+        """Parallel chunk-then-merge extension: k → k+1."""
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+
+        geometries = list(self._cache[k])
+        n_workers = min(self.n_workers, len(geometries))
+        if n_workers <= 1:
+            return self._extend_order_serial(k, eps)
+
+        chunks = [geometries[i::n_workers] for i in range(n_workers)]
+        chunks = [c for c in chunks if c]
+
+        with ProcessPoolExecutor(max_workers=n_workers) as exe:
+            futures = [
+                exe.submit(
+                    _extend_chunk_worker,
+                    self.host_graph,
+                    chunk,
+                    self.max_distance,
+                    self.min_distance,
+                    eps,
+                )
+                for chunk in chunks
+            ]
+
+            chunk_results: list[ComplexDefectGraph] = []
+            iterator = _maybe_tqdm(
+                as_completed(futures),
+                total=len(futures),
+                desc=f"N={k}→{k+1} chunks",
+                leave=False,
+            )
+            for f in iterator:
+                chunk_results.extend(f.result())
+
+        # Merge: cross-dedup across chunks
+        result: list[ComplexDefectGraph] = []
+        iterator = _maybe_tqdm(
+            chunk_results,
+            desc=f"N={k+1} merge",
+            leave=False,
+        )
+        for g in iterator:
+            if not any(equivalent(g, r, eps) for r in result):
+                result.append(g)
+
+        logger.info(
+            "ENUMERATE N=%d: %d unique geometries (%d workers, "
+            "%d pre-merge candidates)",
+            k + 1, len(result), n_workers, len(chunk_results),
+        )
+        return result
+
+
+# ---------------------------------------------------------------------------
+# Parallel worker: extend a chunk of N=k geometries (local dedup)
+# ---------------------------------------------------------------------------
+
+
+def _extend_chunk_worker(
+    host_graph: HostGraph,
+    chunk: list[ComplexDefectGraph],
+    max_distance: float,
+    min_distance: float,
+    eps: float,
+) -> list[ComplexDefectGraph]:
+    """Worker for :meth:`ComplexDefectEnumerator._extend_order_parallel`.
+
+    For each N=k geometry in *chunk*, finds external neighbors,
+    builds candidate N=(k+1) graphs, and deduplicates locally.
+    """
+    result: list[ComplexDefectGraph] = []
+    for G_k in chunk:
+        ext_neighbors = host_graph.neighbors_of_set(
+            set(G_k.host_node_ids), max_distance,
+        )
+        for nbr_id in ext_neighbors:
+            nbr = host_graph.nodes[nbr_id]
+
+            too_close = any(
+                host_graph.min_image_distance(
+                    nbr.frac_coord,
+                    host_graph.nodes[hid].frac_coord,
+                )
+                < min_distance
+                for hid in G_k.host_node_ids
+            )
+            if too_close:
+                continue
+
+            new_ids = tuple(list(G_k.host_node_ids) + [nbr_id])
+            coords = [
+                tuple(host_graph.nodes[i].frac_coord) for i in new_ids
+            ]
+            edges = _edge_list(coords, host_graph, max_distance)
+
+            G_next = ComplexDefectGraph(
+                host_node_ids=new_ids,
+                wyckoffs=tuple(list(G_k.wyckoffs) + [nbr.wyckoff]),
+                elements=tuple(list(G_k.elements) + [nbr.element]),
+                edges=edges,
+            )
+
+            if not any(equivalent(G_next, g, eps) for g in result):
+                result.append(G_next)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Parallel entry generation worker
+# ---------------------------------------------------------------------------
+
+
+def _entry_batch_worker(
+    host_graph: HostGraph,
+    structure: "IStructure",
+    sites: dict,
+    batch: list[tuple[ComplexDefectGraph, "ComplexDefect"]],
+    charges: list[int] | None,
+) -> list["ComplexDefectEntry"]:
+    """Generate ComplexDefectEntry objects for a batch of (G, cd) pairs."""
+    from copy import copy
+    from .structure import ComplexDefectEntry
+
+    results: list[ComplexDefectEntry] = []
+    for G, cd in batch:
+        cd_local = copy(cd)
+        if charges is not None:
+            cd_local.charges = list(charges)
+        try:
+            struct = _generate_structure(
+                host_graph, structure, sites, G, cd_local,
+            )
+        except (ValueError, IndexError):
+            continue
+
+        defect_coords = tuple(
+            tuple(float(x) for x in host_graph.nodes[nid].frac_coord)
+            for nid in G.host_node_ids
+        )
+
+        chain_dists = []
+        for k in range(1, cd_local.n_defects):
+            cp = host_graph.nodes[G.host_node_ids[k - 1]].frac_coord
+            cc = host_graph.nodes[G.host_node_ids[k]].frac_coord
+            d = host_graph.min_image_distance(cp, cc)
+            chain_dists.append(d)
+
+        results.append(ComplexDefectEntry(
+            name=cd_local.name,
+            complex_defect=cd_local,
+            site_path=tuple(d.out_atom for d in cd_local.defects),
+            distances=tuple(chain_dists),
+            structure=struct,
+            defect_coords=defect_coords,
+            graph=G,
+        ))
+    return results
+
+
+def _generate_entries_parallel(
+    pairs: list[tuple[ComplexDefectGraph, "ComplexDefect"]],
+    host_graph: HostGraph,
+    structure: "IStructure",
+    sites: dict,
+    charges: list[int] | None,
+    n_workers: int,
+) -> list["ComplexDefectEntry"]:
+    """Generate entries in parallel using ProcessPoolExecutor."""
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+
+    n_workers = min(n_workers, len(pairs))
+    chunks = [pairs[i::n_workers] for i in range(n_workers)]
+    chunks = [c for c in chunks if c]
+
+    entries: list[ComplexDefectEntry] = []
+    with ProcessPoolExecutor(max_workers=n_workers) as exe:
+        futures = [
+            exe.submit(
+                _entry_batch_worker,
+                host_graph, structure, sites, chunk, charges,
+            )
+            for chunk in chunks
+        ]
+
+        iterator = _maybe_tqdm(
+            as_completed(futures),
+            total=len(futures),
+            desc="Generating structures",
+            unit=" batch",
+        )
+        for f in iterator:
+            entries.extend(f.result())
+
+    logger.info(
+        "ENTRIES PARALLEL: generated %d entries (%d workers)",
+        len(entries), n_workers,
+    )
+    return entries
 
 
 # ---------------------------------------------------------------------------
@@ -256,12 +527,15 @@ def assign_compositions(
             for G in geoms:
                 # Multiset match: G.wyckoffs vs combo out_atoms
                 if sorted(G.wyckoffs) == combo_wyckoffs:
-                    # Defect ordering must match geometry node ordering
-                    # For now: assign in sorted order (both are sorted by wyckoff)
-                    # TODO: support defect permutation optimization
                     cd = CD.from_defects(combo)
                     results.append((G, cd))
 
+    n_orders = len(by_n)
+    logger.info(
+        "COMPOSITIONS: %d (geometry, composition) pairs from "
+        "%d geometries and %d single-defect types across %d orders",
+        len(results), len(geometries), len(single_defects), n_orders,
+    )
     return results
 
 
@@ -301,42 +575,55 @@ def generate_all_entries(
     for n, geoms in all_geometries.items():
         if n not in target_orders:
             continue
+        n_before = len(entries)
+        n_pairs = 0
         pairs = assign_compositions(geoms, single_defects)
-        for G, cd in pairs:
-            if charges is not None:
-                cd.charges = list(charges)
-            try:
-                struct = generate_structure(
-                    enumerator.host_graph, supercell_info, G, cd,
-                )
-            except (ValueError, IndexError) as e:
-                # Skip geometries that can't be structurally realized
-                continue
-
-            # Build defect_coords from host node positions
-            defect_coords = tuple(
-                tuple(float(x) for x in enumerator.host_graph.nodes[nid].frac_coord)
-                for nid in G.host_node_ids
+        n_pairs = len(pairs)
+        n_workers = enumerator.n_workers
+        if n_workers > 1 and len(pairs) >= n_workers:
+            entries += _generate_entries_parallel(
+                pairs, enumerator.host_graph, supercell_info.structure,
+                supercell_info.sites, charges, n_workers,
             )
+        else:
+            for G, cd in pairs:
+                if charges is not None:
+                    cd.charges = list(charges)
+                try:
+                    struct = _generate_structure(
+                        enumerator.host_graph, supercell_info.structure,
+                        supercell_info.sites, G, cd,
+                    )
+                except (ValueError, IndexError):
+                    continue
 
-            # Compute chain distances along enumeration order
-            chain_dists = []
-            for k in range(1, cd.n_defects):
-                c_prev = enumerator.host_graph.nodes[G.host_node_ids[k - 1]].frac_coord
-                c_curr = enumerator.host_graph.nodes[G.host_node_ids[k]].frac_coord
-                d = enumerator.host_graph.min_image_distance(c_prev, c_curr)
-                chain_dists.append(d)
+                defect_coords = tuple(
+                    tuple(float(x) for x in enumerator.host_graph.nodes[nid].frac_coord)
+                    for nid in G.host_node_ids
+                )
 
-            entries.append(ComplexDefectEntry(
-                name=cd.name,
-                complex_defect=cd,
-                site_path=tuple(d.out_atom for d in cd.defects),
-                distances=tuple(chain_dists),
-                structure=struct,
-                defect_coords=defect_coords,
-                graph=G,
-                pristine_structure_cache=supercell_info.structure,
-            ))
+                chain_dists = []
+                for k in range(1, cd.n_defects):
+                    c_prev = enumerator.host_graph.nodes[G.host_node_ids[k - 1]].frac_coord
+                    c_curr = enumerator.host_graph.nodes[G.host_node_ids[k]].frac_coord
+                    d = enumerator.host_graph.min_image_distance(c_prev, c_curr)
+                    chain_dists.append(d)
+
+                entries.append(ComplexDefectEntry(
+                    name=cd.name,
+                    complex_defect=cd,
+                    site_path=tuple(d.out_atom for d in cd.defects),
+                    distances=tuple(chain_dists),
+                    structure=struct,
+                    defect_coords=defect_coords,
+                    graph=G,
+                    pristine_structure_cache=supercell_info.structure,
+                ))
+
+        logger.info(
+            "ENTRIES N=%d: %d entries from %d geometries and %d composition pairs",
+            n, len(entries) - n_before, len(geoms), n_pairs,
+        )
 
     return entries
 
@@ -346,15 +633,16 @@ def generate_all_entries(
 # ---------------------------------------------------------------------------
 
 
-def generate_structure(
+def _generate_structure(
     host_graph: HostGraph,
-    supercell_info: "SupercellInfo",
+    structure: "IStructure",
+    sites: dict,
     graph: ComplexDefectGraph,
     complex_defect: ComplexDefect,
 ) -> "IStructure":
-    """Generate defect structure from a geometry graph + defect composition.
+    """Internal: generate defect structure from raw structure + sites dict.
 
-    Applies each SimpleDefect at its corresponding host node position.
+    ``sites`` is ``supercell_info.sites`` (a dict of pydefect Site objects).
     """
     from pydefect.input_maker.defect_entries_maker import (
         copy_to_structure,
@@ -362,7 +650,7 @@ def generate_structure(
         add_atom_to_structure,
     )
 
-    structure = copy_to_structure(supercell_info.structure)
+    structure = copy_to_structure(structure)
     defects = complex_defect.defects
 
     for i, node_id in enumerate(graph.host_node_ids):
@@ -370,22 +658,16 @@ def generate_structure(
         node = host_graph.nodes[node_id]
 
         if _is_interstitial(d.out_atom):
-            # Interstitial: add atom at the interstitial site
             coords = node.frac_coord
             if d.in_atom is not None:
                 add_atom_to_structure(structure, d.in_atom, coords)
         else:
-            # Vacancy or substitution: remove host atom
-            # Find the atom index in the current structure
-            site = supercell_info.sites[d.out_atom]
+            site = sites[d.out_atom]
             rep_idx = site.equivalent_atoms[0] if i == 0 else None
 
             if i == 0:
-                # First defect: use the representative site
                 coords = structure.pop(rep_idx).frac_coords
             else:
-                # Subsequent: remove atom at the graph node's position
-                # Find by matching fractional coordinates
                 target = node.frac_coord
                 found_idx = None
                 for s_idx, s in enumerate(structure):
@@ -403,3 +685,19 @@ def generate_structure(
                 add_atom_to_structure(structure, d.in_atom, coords)
 
     return to_istructure(structure)
+
+
+def generate_structure(
+    host_graph: HostGraph,
+    supercell_info: "SupercellInfo",
+    graph: ComplexDefectGraph,
+    complex_defect: ComplexDefect,
+) -> "IStructure":
+    """Generate defect structure from a geometry graph + defect composition.
+
+    Applies each SimpleDefect at its corresponding host node position.
+    """
+    return _generate_structure(
+        host_graph, supercell_info.structure, supercell_info.sites,
+        graph, complex_defect,
+    )

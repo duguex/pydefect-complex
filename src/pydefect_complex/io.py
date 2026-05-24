@@ -14,6 +14,10 @@ from typing import Optional, TYPE_CHECKING
 
 import yaml
 
+from .log import get_logger
+
+logger = get_logger(__name__)
+
 if TYPE_CHECKING:
     from pydefect.input_maker.defect import SimpleDefect
     from .structure import ComplexDefectEntry
@@ -82,6 +86,11 @@ def write_all(
         for charge in cd.charges:
             write_entry(entry, output_dir, charge, create_defect_json)
 
+    n_charges = max(len(e.complex_defect.charges) for e in entries) if entries else 0
+    logger.info(
+        "OUTPUT: wrote %d entries (%d charge states each) to %s",
+        len(entries), n_charges, output_dir,
+    )
     return complex_defect_in
 
 
@@ -217,6 +226,10 @@ def write_summary(
 
     text = "\n".join(lines) + "\n"
     path.write_text(text)
+    logger.info(
+        "SUMMARY: wrote %s (%d entries, %d compositions)",
+        Path(path).name, n_total, n_comp,
+    )
     return str(path)
 
 

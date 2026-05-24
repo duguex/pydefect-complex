@@ -172,7 +172,8 @@ def deduplicate(
         return []
 
     # Build graphs for all entries
-    for entry in entries:
+    from .enumerate import _maybe_tqdm
+    for entry in _maybe_tqdm(entries, desc="Build graphs", unit=" entry", leave=False):
         if entry.graph is None:
             entry.graph = ComplexDefectGraph.from_entry(
                 entry, host_graph, max_distance,
@@ -190,7 +191,7 @@ def deduplicate(
     clusters: list[list["ComplexDefectEntry"]] = [[entries[0]]]
     entry_cluster_id: dict[int, int] = {id(entries[0]): 0}
 
-    for e in entries[1:]:
+    for e in _maybe_tqdm(entries[1:], desc="Dedup entries", unit=" entry", leave=False):
         found = False
         for cid, cluster in enumerate(clusters):
             if equivalent(e.graph, cluster[0].graph, eps):
