@@ -35,26 +35,80 @@ See ``examples/`` for a full walkthrough with ``pydefect_complex.log``.
 ## Usage
 
 ```
-pydefect_complex [-d DOPANTS ...] [-n N_BODY] [-g] [--structures] [--workers N] [-v]
+pydefect_complex [-d DOPANTS ...] [-n N_BODY] [--max-distance DIST]
+                 [--min-distance DIST] [--charges CHARGES]
+                 [-g] [--structures] [--workers N] [-v]
 ```
+
+### Options
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-d, --dopants` | intrinsic only | Dopant elements (e.g. ``-d N B``) |
-| `-n, --n-body` | 2 | Maximum order (generates 2..n) |
-| `-g, --geometries-only` | off | Enumerate geometry only, no entries or output files |
-| `--max-distance` | 3.0 Å | Defect-defect edge cutoff |
-| `--min-distance` | 0.3 Å | Minimum defect separation |
-| `--charges` | [0] | Charge states to generate |
-| `--structures` | off | Write per-defect POSCAR directories |
-| `--workers` | CPU count | Worker processes for parallel enumeration + structure generation |
-| `-v, --verbose` | off | Debug logging + pipeline tracking |
+| `-d, --dopants` | intrinsic only | Dopant element symbols, e.g. ``-d N B``. Omit for vacancies only |
+| `-n, --n-body` | 2 | Maximum order (generates all complexes 2..n). N=2 for pairs, N=3 for trimers, etc. |
+| `--max-distance` | 3.0 Å | Maximum defect-defect distance for edge inclusion. Smaller = faster, fewer complexes |
+| `--min-distance` | 0.3 Å | Minimum defect separation (rejects overlap) |
+| `--charges` | [0] | Charge states to generate, e.g. ``--charges -2 -1 0 1 2`` |
+| `-g, --geometries-only` | off | Enumerate geometries only, save cache, exit (no entries or POSCAR) |
+| `--structures` | off | Write per-defect POSCAR directories (otherwise registry-only) |
+| `--workers` | CPU count | Number of worker processes for parallel enumeration |
+| `-v, --verbose` | off | Verbose DEBUG logging + pipeline tracking |
 
-Progress bars are shown automatically when `tqdm` is installed (``pip install tqdm``).
+### Examples
+
+```bash
+# Intrinsic vacancies only (no dopants)
+pydefect_complex -n 2
+
+# N-B co-doping pairs
+pydefect_complex -d N B -n 2 --max-distance 4.0
+
+# N=3 complexes (trimers) with multiple charge states, using 8 workers
+pydefect_complex -d N B -n 3 --charges -2 -1 0 1 2 --workers 8
+
+# Geometry enumeration only (skip structure generation for inspection)
+pydefect_complex -d N B -n 4 --geometries-only
+
+# Full pipeline with POSCAR output
+pydefect_complex -d N B -n 3 --structures
+```
+
+### Output directory
+
+After a run, ``defect/`` contains:
+
+| File | Contents |
+|------|----------|
+| ``complex_defect_in.yaml`` | Defect registry (name → charge list), pydefect-compatible |
+| ``defect_summary.txt`` | Human-readable table: point group, orientations per geometry |
+| ``parameters.yaml`` | Run parameters and cache status |
+| ``geometries_N*.yaml`` | Geometry cache (cross-process, reused on subsequent runs) |
+
+With ``--structures``, each defect also gets a subdirectory:
+
+```
+defect/Va_C1+Va_C1.001_0/POSCAR + prior_info.yaml
+defect/N_C1+B_C1.002_1/POSCAR + prior_info.yaml
+...
+```
+
+### Progress bars
+
+Progress bars are shown automatically when ``tqdm`` is installed:
+
+```bash
+pip install tqdm
+```
+
+Geometry enumeration (``_extend_order``), structure generation (``generate_all_entries``),
+and deduplication all display live progress. If ``tqdm`` is not installed, runs silently.
+
+### Caching
 
 Geometry cache (``defect/geometries_N*.yaml``) is written on every run and
 automatically loaded on the next run — geometry enumeration is never repeated
-for the same supercell + distance parameters.
+for the same supercell + distance parameters. Changing dopants reuses cached
+geometries (only entry generation is re-run).
 
 ## Pipeline
 
