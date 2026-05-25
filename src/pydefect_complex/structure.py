@@ -222,22 +222,25 @@ def _count_orientations_from_coords(
             orig_dists.append(float(np.linalg.norm(lattice @ df)))
     orig_dists.sort()
 
-    # Pre-compute canonical form of the original geometry
-    import itertools
+    # Canonical form: deterministic ordering via lexicographic sort.
+    # O(n log n) vs. brute-force O(n·n!) permutation search.
+    _canon_cache: dict[tuple, tuple] = {}
 
-    def _canonical(points):
-        best = None
-        for perm_ids in itertools.permutations(range(len(points))):
-            anchor = points[perm_ids[0]]
-            normed = []
-            for k in range(1, len(points)):
-                df = tuple(points[perm_ids[k]][j] - anchor[j] for j in range(3))
-                df_w = tuple(round(x - round(x), 8) for x in df)
-                normed.append(df_w)
-            cand = tuple(normed)
-            if best is None or cand < best:
-                best = cand
-        return best
+    def _canonical(points, ids_key=None):
+        if ids_key is not None and ids_key in _canon_cache:
+            return _canon_cache[ids_key]
+        arr = np.array(points)
+        order = np.lexsort(arr.T)
+        sorted_pts = arr[order]
+        anchor = sorted_pts[0]
+        parts = []
+        for k in range(1, len(sorted_pts)):
+            rel = tuple(sorted_pts[k][j] - anchor[j] for j in range(3))
+            parts.append(tuple(round(x - round(x), 8) for x in rel))
+        result = tuple(parts)
+        if ids_key is not None:
+            _canon_cache[ids_key] = result
+        return result
 
     best_orig = _canonical(dc)
 
@@ -248,14 +251,11 @@ def _count_orientations_from_coords(
         R = np.array(r_key, dtype=int).reshape(3, 3)
         for t in t_list:
             rotated = (dc @ R.T + t) % 1.0
-            ids = []
-            ok = True
-            for fc in rotated:
-                _, idx = tree.query(fc)
-                d = np.linalg.norm((fc - tree.data[idx] + 0.5) % 1.0 - 0.5)
-                if d > tol: ok = False; break
-                ids.append(int(idx))
-            if not ok: continue
+            dists, idxs = tree.query(rotated)
+            wrapped = (rotated - tree.data[idxs] + 0.5) % 1.0 - 0.5
+            if np.any(np.linalg.norm(wrapped, axis=1) > tol):
+                continue
+            ids = list(idxs)
 
             mapped = []
             for i in range(n):
@@ -266,7 +266,7 @@ def _count_orientations_from_coords(
             if not all(abs(a - b) < tol for a, b in zip(orig_dists, mapped)):
                 continue
 
-            best = _canonical([pos[i] for i in ids])
+            best = _canonical([pos[i] for i in ids], ids_key=tuple(sorted(ids)))
             if best == best_orig:
                 stabilizer_rots.append(R)
             if best not in orient_sets:

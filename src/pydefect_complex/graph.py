@@ -195,9 +195,19 @@ class ComplexDefectGraph:
     edges: list[tuple[int, int, np.ndarray]] = field(default_factory=list)
     n_orientations: int = -1  # cached during enumeration (geometry only)
     point_group: str = ""     # Schoenflies symbol of stabilizer subgroup
+    _fingerprint: Optional[tuple[float, ...]] = None  # lazy: sorted edge lengths
 
     def __post_init__(self):
         self.edges = [(i, j, np.asarray(v, dtype=float)) for i, j, v in self.edges]
+
+    @property
+    def fingerprint(self) -> tuple[float, ...]:
+        """Sorted tuple of rounded edge lengths — fast geometric pre-filter."""
+        if self._fingerprint is None:
+            self._fingerprint = tuple(sorted(
+                round(float(np.linalg.norm(v)), 2) for _, _, v in self.edges
+            ))
+        return self._fingerprint
 
     @property
     def n_defects(self) -> int:
@@ -217,11 +227,13 @@ class ComplexDefectGraph:
             "edges": [[i, j, v.tolist()] for i, j, v in self.edges],
             "n_orientations": self.n_orientations,
             "point_group": self.point_group,
+            "fingerprint": list(self.fingerprint),
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> "ComplexDefectGraph":
         """Deserialize from dict."""
+        fp = d.get("fingerprint")
         return cls(
             host_node_ids=tuple(d["host_node_ids"]),
             wyckoffs=tuple(d["wyckoffs"]),
@@ -229,6 +241,7 @@ class ComplexDefectGraph:
             edges=[(i, j, np.array(v)) for i, j, v in d["edges"]],
             n_orientations=d.get("n_orientations", -1),
             point_group=d.get("point_group", ""),
+            _fingerprint=tuple(fp) if fp else None,
         )
 
     @classmethod
@@ -294,6 +307,10 @@ def equivalent(
     if graph1.n_defects != graph2.n_defects:
         return False
     if len(graph1.edges) != len(graph2.edges):
+        return False
+
+    # Fast fingerprint pre-filter — O(k²) vs Kabsch O(k³)
+    if graph1.fingerprint != graph2.fingerprint:
         return False
 
     labels1 = list(zip(graph1.wyckoffs, graph1.elements))
