@@ -408,15 +408,21 @@ def _entry_batch_worker(
         except (ValueError, IndexError):
             continue
 
+        sorted_node_ids = sorted(
+            G.host_node_ids,
+            key=lambda nid: host_graph.nodes[nid].wyckoff,
+            reverse=True,
+        )
+
         defect_coords = tuple(
             tuple(float(x) for x in host_graph.nodes[nid].frac_coord)
-            for nid in G.host_node_ids
+            for nid in sorted_node_ids
         )
 
         chain_dists = []
         for k in range(1, cd_local.n_defects):
-            cp = host_graph.nodes[G.host_node_ids[k - 1]].frac_coord
-            cc = host_graph.nodes[G.host_node_ids[k]].frac_coord
+            cp = host_graph.nodes[sorted_node_ids[k - 1]].frac_coord
+            cc = host_graph.nodes[sorted_node_ids[k]].frac_coord
             d = host_graph.min_image_distance(cp, cc)
             chain_dists.append(d)
 
@@ -597,15 +603,21 @@ def generate_all_entries(
                 except (ValueError, IndexError):
                     continue
 
+                sorted_node_ids = sorted(
+                    G.host_node_ids,
+                    key=lambda nid: enumerator.host_graph.nodes[nid].wyckoff,
+                    reverse=True,
+                )
+
                 defect_coords = tuple(
                     tuple(float(x) for x in enumerator.host_graph.nodes[nid].frac_coord)
-                    for nid in G.host_node_ids
+                    for nid in sorted_node_ids
                 )
 
                 chain_dists = []
                 for k in range(1, cd.n_defects):
-                    c_prev = enumerator.host_graph.nodes[G.host_node_ids[k - 1]].frac_coord
-                    c_curr = enumerator.host_graph.nodes[G.host_node_ids[k]].frac_coord
+                    c_prev = enumerator.host_graph.nodes[sorted_node_ids[k - 1]].frac_coord
+                    c_curr = enumerator.host_graph.nodes[sorted_node_ids[k]].frac_coord
                     d = enumerator.host_graph.min_image_distance(c_prev, c_curr)
                     chain_dists.append(d)
 
@@ -653,7 +665,14 @@ def _generate_structure(
     structure = copy_to_structure(structure)
     defects = complex_defect.defects
 
-    for i, node_id in enumerate(graph.host_node_ids):
+    # Match host node order to defect order (sorted by out_atom reverse)
+    # so that each defect is applied to the correct host site type.
+    sorted_node_ids = sorted(
+        graph.host_node_ids,
+        key=lambda nid: host_graph.nodes[nid].wyckoff,
+        reverse=True,
+    )
+    for i, node_id in enumerate(sorted_node_ids):
         d = defects[i]
         node = host_graph.nodes[node_id]
 

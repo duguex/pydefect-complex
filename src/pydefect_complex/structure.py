@@ -296,7 +296,8 @@ class ComplexDefectEntry:
         site_path: Tuple of site names for each defect layer.
         distances: Tuple of distances between successive defect centers (Å).
         structure: Final IStructure of the defect supercell.
-        defect_coords: N defect center fractional coords, in defect application order.
+        defect_coords: N defect center fractional coords, sorted by wyckoff
+            (matches ordering of site_path and complex_defect.defects).
         graph: ComplexDefectGraph (set after generation).
     """
 
