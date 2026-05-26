@@ -669,12 +669,14 @@ def _generate_structure(
                 coords = structure.pop(rep_idx).frac_coords
             else:
                 target = node.frac_coord
+                out_elem = d.out_atom.rstrip("0123456789")
                 found_idx = None
                 for s_idx, s in enumerate(structure):
                     fc = s.frac_coords
                     d_vec = fc - target
                     d_vec -= np.round(d_vec)
-                    if np.linalg.norm(np.dot(d_vec, host_graph.lattice)) < 0.01:
+                    if (np.linalg.norm(np.dot(d_vec, host_graph.lattice)) < 0.01
+                            and s.species_string == out_elem):
                         found_idx = s_idx
                         break
                 if found_idx is None:

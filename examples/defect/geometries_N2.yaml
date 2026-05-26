@@ -1,8 +1,17 @@
-max_distance: 2.5
+max_distance: 3.0
 min_distance: 0.3
 order: 2
-n_geometries: 1
+n_geometries: 3
 geometries:
+- host_node_ids: [0, 27]
+  wyckoffs: [C1, C1]
+  elements: [C, C]
+  edges:
+  - - 0
+    - 1
+    - [-1.7833949999999996, -1.7833949999999996, 0.0]
+  n_orientations: 6
+  point_group: D4h
 - host_node_ids: [0, 108]
   wyckoffs: [C1, C1]
   elements: [C, C]
@@ -11,4 +20,13 @@ geometries:
     - 1
     - [-0.8916974999999998, -0.8916974999999998, -0.8916974999999998]
   n_orientations: 4
-  point_group: D3d
+  point_group: Oh
+- host_node_ids: [0, 110]
+  wyckoffs: [C1, C1]
+  elements: [C, C]
+  edges:
+  - - 0
+    - 1
+    - [-0.8916974999999998, -0.8916974999999998, 2.6750925]
+  n_orientations: 12
+  point_group: D4h
