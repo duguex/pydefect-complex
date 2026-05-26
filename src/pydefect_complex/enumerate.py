@@ -662,26 +662,26 @@ def _generate_structure(
             if d.in_atom is not None:
                 add_atom_to_structure(structure, d.in_atom, coords)
         else:
-            site = sites[d.out_atom]
-            rep_idx = site.equivalent_atoms[0] if i == 0 else None
+            target = node.frac_coord if i > 0 else None
+            out_elem = d.out_atom.rstrip("0123456789")
+            found_idx = None
 
-            if i == 0:
-                coords = structure.pop(rep_idx).frac_coords
-            else:
+            if i == 0 and not _is_interstitial(d.out_atom):
+                # First defect: find by coordinate + element
                 target = node.frac_coord
-                out_elem = d.out_atom.rstrip("0123456789")
-                found_idx = None
-                for s_idx, s in enumerate(structure):
-                    fc = s.frac_coords
-                    d_vec = fc - target
-                    d_vec -= np.round(d_vec)
-                    if (np.linalg.norm(np.dot(d_vec, host_graph.lattice)) < 0.01
-                            and s.species_string == out_elem):
-                        found_idx = s_idx
-                        break
-                if found_idx is None:
-                    raise ValueError(f"Cannot find site at {target}")
-                coords = structure.pop(found_idx).frac_coords
+
+            # Find by coordinate + element for all defects (i=0 and i>0)
+            for s_idx, s in enumerate(structure):
+                fc = s.frac_coords
+                d_vec = fc - target
+                d_vec -= np.round(d_vec)
+                if (np.linalg.norm(np.dot(d_vec, host_graph.lattice)) < 0.01
+                        and s.species_string == out_elem):
+                    found_idx = s_idx
+                    break
+            if found_idx is None:
+                raise ValueError(f"Cannot find {out_elem} at {target}")
+            coords = structure.pop(found_idx).frac_coords
 
             if d.in_atom is not None:
                 add_atom_to_structure(structure, d.in_atom, coords)
