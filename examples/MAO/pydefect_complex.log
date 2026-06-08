@@ -1,0 +1,129 @@
+2026-05-26 18:20:18 [INFO ] pydefect_complex.cli: COMMAND: pydefect_complex -n 2 --structures
+2026-05-26 18:20:18 [INFO ] pydefect_complex.cli: SUPERCELL: /home/duguex/pydefect-complex/examples/MAO/supercell_info.json (448 atoms, space group Fd-3m)
+2026-05-26 18:20:18 [INFO ] pydefect_complex.cli: ARGS: n_body=2 dopants=(intrinsic) max_distance=3.0 min_distance=0.30 charges=[0]
+2026-05-26 18:20:18 [INFO ] pydefect_complex.cli: DEFECTS: 7 types: ['Al_O1', 'Mg_Al1', 'Va_O1', 'Al_Mg1', 'Va_Mg1', 'O_Al1', 'Va_Al1']
+2026-05-26 18:20:18 [INFO ] pydefect_complex.cli: EXISTING: 0 entries in defect/complex_defect_in.yaml
+2026-05-26 18:20:18 [INFO ] pydefect_complex.cli: GEOMETRY: enumerate N=[2] (cached: N=none)
+2026-05-26 18:20:18 [INFO ] pydefect_complex.enumerate: ENUMERATE N=2: 5 unique geometries from 3 anchor classes (max_dist=3.0 min_dist=0.3 eps=0.10)
+2026-05-26 18:20:18 [INFO ] pydefect_complex.enumerate: ORIENTATIONS: 5 geometries, 55 total orientations, point groups: D*h=3, Oh=1, D4h=1
+2026-05-26 18:20:18 [DEBUG] pydefect_complex.enumerate: ENUMERATE: cache hit for N_max=2 (max_cached=2)
+2026-05-26 18:20:19 [INFO ] pydefect_complex.enumerate: COMPOSITIONS: 22 (geometry, composition) pairs from 5 geometries and 7 single-defect types across 1 orders
+2026-05-26 18:20:19 [INFO ] pydefect_complex.enumerate: ENTRIES N=2: 12 entries from 5 geometries and 22 composition pairs
+2026-05-26 18:20:19 [INFO ] pydefect_complex.symmetry: DEDUP: 12 entries → 3 geometric clusters (75.0% reduction)
+2026-05-26 18:20:19 [INFO ] pydefect_complex.symmetry: DEDUP FINAL: 12 entries across 9 compositions after cross-composition dedup
+2026-05-26 18:20:19 [INFO ] pydefect_complex.cli: ENTRIES: 12 generated, 12 after dedup, 12 new, 0 skipped (already exist)
+2026-05-26 18:20:20 [INFO ] pydefect_complex.io: OUTPUT: wrote 12 entries (1 charge states each) to defect
+2026-05-26 18:20:21 [INFO ] pydefect_complex.io: SUMMARY: wrote defect_summary.txt (12 entries, 9 compositions)
+2026-05-26 18:20:21 [INFO ] pydefect_complex.cli: OUTPUT: defect/complex_defect_in.yaml (12 total, 12 new, 0 kept)
+2026-05-26 18:20:21 [INFO ] pydefect_complex.maker: CACHE: saved 5 geometries to defect/geometries_N2.yaml
+2026-05-26 18:20:21 [INFO ] pydefect_complex.cli: CACHE: N=2 5 geometries 55 orientations
+2026-05-26 19:12:14 [INFO ] pydefect_complex.cli: COMMAND: pydefect_complex -n 2 --structures
+2026-05-26 19:12:15 [INFO ] pydefect_complex.cli: SUPERCELL: /home/duguex/pydefect-complex/examples/MAO/supercell_info.json (448 atoms, space group Fd-3m)
+2026-05-26 19:12:15 [INFO ] pydefect_complex.cli: ARGS: n_body=2 dopants=(intrinsic) max_distance=3.0 min_distance=0.30 charges=[0]
+2026-05-26 19:12:15 [INFO ] pydefect_complex.cli: DEFECTS: 7 types: ['Mg_Al1', 'Al_O1', 'Al_Mg1', 'O_Al1', 'Va_Al1', 'Va_Mg1', 'Va_O1']
+2026-05-26 19:12:15 [INFO ] pydefect_complex.cli: EXISTING: 0 entries in defect/complex_defect_in.yaml
+2026-05-26 19:12:15 [INFO ] pydefect_complex.cli: GEOMETRY: enumerate N=[2] (cached: N=none)
+2026-05-26 19:12:15 [INFO ] pydefect_complex.enumerate: ENUMERATE N=2: 5 unique geometries from 3 anchor classes (max_dist=3.0 min_dist=0.3 eps=0.10)
+2026-05-26 19:12:15 [INFO ] pydefect_complex.enumerate: ORIENTATIONS: 5 geometries, 55 total orientations, point groups: D*h=3, Oh=1, D4h=1
+2026-05-26 19:12:15 [DEBUG] pydefect_complex.enumerate: ENUMERATE: cache hit for N_max=2 (max_cached=2)
+2026-05-26 19:12:15 [INFO ] pydefect_complex.enumerate: COMPOSITIONS: 22 (geometry, composition) pairs from 5 geometries and 7 single-defect types across 1 orders
+2026-05-26 19:12:15 [INFO ] pydefect_complex.enumerate: ENTRIES N=2: 22 entries from 5 geometries and 22 composition pairs
+2026-05-26 19:12:15 [INFO ] pydefect_complex.symmetry: DEDUP: 22 entries → 5 geometric clusters (77.3% reduction)
+2026-05-26 19:12:15 [INFO ] pydefect_complex.symmetry: DEDUP FINAL: 22 entries across 19 compositions after cross-composition dedup
+2026-05-26 19:12:15 [INFO ] pydefect_complex.cli: ENTRIES: 22 generated, 22 after dedup, 22 new, 0 skipped (already exist)
+2026-05-26 19:12:17 [INFO ] pydefect_complex.io: OUTPUT: wrote 22 entries (1 charge states each) to defect
+2026-05-26 19:12:19 [INFO ] pydefect_complex.io: SUMMARY: wrote defect_summary.txt (22 entries, 19 compositions)
+2026-05-26 19:12:19 [INFO ] pydefect_complex.cli: OUTPUT: defect/complex_defect_in.yaml (22 total, 22 new, 0 kept)
+2026-05-26 19:12:19 [INFO ] pydefect_complex.maker: CACHE: saved 5 geometries to defect/geometries_N2.yaml
+2026-05-26 19:12:19 [INFO ] pydefect_complex.cli: CACHE: N=2 5 geometries 55 orientations
+2026-05-26 19:21:17 [INFO ] pydefect_complex.cli: COMMAND: pydefect_complex -n 2 --structures
+2026-05-26 19:21:17 [INFO ] pydefect_complex.cli: SUPERCELL: /home/duguex/pydefect-complex/examples/MAO/supercell_info.json (448 atoms, space group Fd-3m)
+2026-05-26 19:21:17 [INFO ] pydefect_complex.cli: ARGS: n_body=2 dopants=(intrinsic) max_distance=3.0 min_distance=0.30 charges=[0]
+2026-05-26 19:21:17 [INFO ] pydefect_complex.cli: DEFECTS: 7 types: ['O_Al1', 'Al_O1', 'Va_Al1', 'Al_Mg1', 'Mg_Al1', 'Va_O1', 'Va_Mg1']
+2026-05-26 19:21:17 [INFO ] pydefect_complex.cli: EXISTING: 0 entries in defect/complex_defect_in.yaml
+2026-05-26 19:21:17 [INFO ] pydefect_complex.cli: GEOMETRY: enumerate N=[2] (cached: N=none)
+2026-05-26 19:21:17 [INFO ] pydefect_complex.enumerate: ENUMERATE N=2: 5 unique geometries from 3 anchor classes (max_dist=3.0 min_dist=0.3 eps=0.10)
+2026-05-26 19:21:17 [INFO ] pydefect_complex.enumerate: ORIENTATIONS: 5 geometries, 55 total orientations, point groups: D*h=3, Oh=1, D4h=1
+2026-05-26 19:21:17 [DEBUG] pydefect_complex.enumerate: ENUMERATE: cache hit for N_max=2 (max_cached=2)
+2026-05-26 19:21:17 [INFO ] pydefect_complex.enumerate: COMPOSITIONS: 22 (geometry, composition) pairs from 5 geometries and 7 single-defect types across 1 orders
+2026-05-26 19:21:18 [INFO ] pydefect_complex.enumerate: ENTRIES N=2: 22 entries from 5 geometries and 22 composition pairs
+2026-05-26 19:21:18 [INFO ] pydefect_complex.symmetry: DEDUP: 22 entries → 5 geometric clusters (77.3% reduction)
+2026-05-26 19:21:18 [INFO ] pydefect_complex.symmetry: DEDUP FINAL: 22 entries across 19 compositions after cross-composition dedup
+2026-05-26 19:21:18 [INFO ] pydefect_complex.cli: ENTRIES: 22 generated, 22 after dedup, 22 new, 0 skipped (already exist)
+2026-05-26 19:21:20 [INFO ] pydefect_complex.io: OUTPUT: wrote 22 entries (1 charge states each) to defect
+2026-05-26 19:21:22 [INFO ] pydefect_complex.io: SUMMARY: wrote defect_summary.txt (22 entries, 19 compositions)
+2026-05-26 19:21:22 [INFO ] pydefect_complex.cli: OUTPUT: defect/complex_defect_in.yaml (22 total, 22 new, 0 kept)
+2026-05-26 19:21:22 [INFO ] pydefect_complex.maker: CACHE: saved 5 geometries to defect/geometries_N2.yaml
+2026-05-26 19:21:22 [INFO ] pydefect_complex.cli: CACHE: N=2 5 geometries 55 orientations
+2026-05-26 19:55:26 [INFO ] pydefect_complex.cli: COMMAND: pydefect_complex -n 2 --structures --max-distance 4.0
+2026-05-26 19:55:26 [INFO ] pydefect_complex.cli: SUPERCELL: /home/duguex/pydefect-complex/examples/MAO/supercell_info.json (448 atoms, space group Fd-3m)
+2026-05-26 19:55:26 [INFO ] pydefect_complex.cli: ARGS: n_body=2 dopants=(intrinsic) max_distance=4.0 min_distance=0.30 charges=[0]
+2026-05-26 19:55:26 [INFO ] pydefect_complex.cli: DEFECTS: 7 types: ['Al_Mg1', 'Al_O1', 'O_Al1', 'Va_O1', 'Mg_Al1', 'Va_Mg1', 'Va_Al1']
+2026-05-26 19:55:26 [INFO ] pydefect_complex.cli: EXISTING: 0 entries in defect/complex_defect_in.yaml
+2026-05-26 19:55:26 [INFO ] pydefect_complex.cli: GEOMETRY: enumerate N=[2] (cached: N=none)
+2026-05-26 19:55:26 [INFO ] pydefect_complex.enumerate: ENUMERATE N=2: 12 unique geometries from 3 anchor classes (max_dist=4.0 min_dist=0.3 eps=0.10)
+2026-05-26 19:55:26 [INFO ] pydefect_complex.enumerate: ORIENTATIONS: 12 geometries, 145 total orientations, point groups: Oh=3, D*h=3, D4h=3, C1=2, C2v=1
+2026-05-26 19:55:26 [DEBUG] pydefect_complex.enumerate: ENUMERATE: cache hit for N_max=2 (max_cached=2)
+2026-05-26 19:55:26 [INFO ] pydefect_complex.enumerate: COMPOSITIONS: 53 (geometry, composition) pairs from 12 geometries and 7 single-defect types across 1 orders
+2026-05-26 19:55:27 [INFO ] pydefect_complex.enumerate: ENTRIES PARALLEL: generated 53 entries (28 workers)
+2026-05-26 19:55:27 [INFO ] pydefect_complex.enumerate: ENTRIES N=2: 53 entries from 12 geometries and 53 composition pairs
+2026-05-26 19:55:27 [INFO ] pydefect_complex.symmetry: DEDUP: 53 entries → 12 geometric clusters (77.4% reduction)
+2026-05-26 19:55:27 [INFO ] pydefect_complex.symmetry: DEDUP FINAL: 53 entries across 28 compositions after cross-composition dedup
+2026-05-26 19:55:27 [INFO ] pydefect_complex.cli: ENTRIES: 53 generated, 53 after dedup, 53 new, 0 skipped (already exist)
+2026-05-26 19:55:31 [INFO ] pydefect_complex.io: OUTPUT: wrote 53 entries (1 charge states each) to defect
+2026-05-26 19:55:36 [INFO ] pydefect_complex.io: SUMMARY: wrote defect_summary.txt (53 entries, 28 compositions)
+2026-05-26 19:55:36 [INFO ] pydefect_complex.cli: OUTPUT: defect/complex_defect_in.yaml (53 total, 53 new, 0 kept)
+2026-05-26 19:55:36 [INFO ] pydefect_complex.maker: CACHE: saved 12 geometries to defect/geometries_N2.yaml
+2026-05-26 19:55:36 [INFO ] pydefect_complex.cli: CACHE: N=2 12 geometries 145 orientations
+2026-05-26 19:55:36 [INFO ] pydefect_complex.cli: COMMAND: pydefect_complex -d N B -n 3 --max-distance 4.0
+2026-05-26 19:55:37 [INFO ] pydefect_complex.cli: SUPERCELL: /home/duguex/pydefect-complex/examples/MAO/supercell_info.json (448 atoms, space group Fd-3m)
+2026-05-26 19:55:37 [INFO ] pydefect_complex.cli: ARGS: n_body=3 dopants=['N', 'B'] max_distance=4.0 min_distance=0.30 charges=[0]
+2026-05-26 19:55:37 [INFO ] pydefect_complex.cli: DEFECTS: 13 types: ['Va_Al1', 'Va_O1', 'B_O1', 'O_Al1', 'N_Al1', 'Mg_Al1', 'B_Al1', 'N_O1', 'Al_O1', 'N_Mg1', 'Va_Mg1', 'B_Mg1', 'Al_Mg1']
+2026-05-26 19:55:37 [INFO ] pydefect_complex.cli: EXISTING: 53 entries in defect/complex_defect_in.yaml (skip)
+2026-05-26 19:55:37 [INFO ] pydefect_complex.maker: CACHE HIT: N=2 (12 geometries) from defect/geometries_N2.yaml (max_distance=4.0, min_distance=0.30)
+2026-05-26 19:55:37 [INFO ] pydefect_complex.cli: GEOMETRY: enumerate N=[3] (cached: N=[2])
+2026-05-26 19:55:37 [INFO ] pydefect_complex.enumerate: ENUMERATE N=3: 111 unique geometries (12 workers, 212 pre-merge candidates)
+2026-05-26 19:55:38 [INFO ] pydefect_complex.enumerate: ORIENTATIONS: 111 geometries, 3913 total orientations, point groups: C1=77, D*h=29, D3h=4, C4v=1
+2026-05-26 19:55:38 [DEBUG] pydefect_complex.enumerate: ENUMERATE: cache hit for N_max=3 (max_cached=3)
+2026-05-26 19:55:38 [INFO ] pydefect_complex.enumerate: COMPOSITIONS: 177 (geometry, composition) pairs from 12 geometries and 13 single-defect types across 1 orders
+2026-05-26 19:55:40 [INFO ] pydefect_complex.enumerate: ENTRIES PARALLEL: generated 177 entries (28 workers)
+2026-05-26 19:55:40 [INFO ] pydefect_complex.enumerate: ENTRIES N=2: 177 entries from 12 geometries and 177 composition pairs
+2026-05-26 19:55:40 [INFO ] pydefect_complex.enumerate: COMPOSITIONS: 5475 (geometry, composition) pairs from 111 geometries and 13 single-defect types across 1 orders
+2026-05-26 20:13:37 [INFO ] pydefect_complex.cli: COMMAND: pydefect_complex -n 2
+2026-05-26 20:13:37 [INFO ] pydefect_complex.cli: SUPERCELL: /home/duguex/pydefect-complex/examples/MAO/supercell_info.json (448 atoms, space group Fd-3m)
+2026-05-26 20:13:37 [INFO ] pydefect_complex.cli: ARGS: n_body=2 dopants=(intrinsic) max_distance=3.0 min_distance=0.30 charges=[0]
+2026-05-26 20:13:37 [INFO ] pydefect_complex.cli: DEFECTS: 7 types: ['Va_Al1', 'Al_O1', 'O_Al1', 'Va_O1', 'Va_Mg1', 'Al_Mg1', 'Mg_Al1']
+2026-05-26 20:13:37 [INFO ] pydefect_complex.cli: EXISTING: 53 entries in defect/complex_defect_in.yaml (skip)
+2026-05-26 20:13:37 [INFO ] pydefect_complex.maker: CACHE SKIP: defect/geometries_N2.yaml (max_distance=4.0/3.0 or min_distance=0.30/0.30 mismatch)
+2026-05-26 20:13:37 [INFO ] pydefect_complex.cli: GEOMETRY: enumerate N=[2] (cached: N=none)
+2026-05-26 20:13:37 [INFO ] pydefect_complex.enumerate: ENUMERATE N=2: 5 unique geometries from 3 anchor classes (max_dist=3.0 min_dist=0.3 eps=0.10)
+2026-05-26 20:13:37 [INFO ] pydefect_complex.enumerate: ORIENTATIONS: 5 geometries, 55 total orientations, point groups: D*h=3, Oh=1, D4h=1
+2026-05-26 20:13:37 [DEBUG] pydefect_complex.enumerate: ENUMERATE: cache hit for N_max=2 (max_cached=2)
+2026-05-26 20:13:37 [INFO ] pydefect_complex.enumerate: COMPOSITIONS: 22 (geometry, composition) pairs from 5 geometries and 7 single-defect types across 1 orders
+2026-05-26 20:13:38 [INFO ] pydefect_complex.enumerate: ENTRIES N=2: 22 entries from 5 geometries and 22 composition pairs
+2026-05-26 20:13:38 [INFO ] pydefect_complex.symmetry: DEDUP: 22 entries → 5 geometric clusters (77.3% reduction)
+2026-05-26 20:13:38 [INFO ] pydefect_complex.symmetry: DEDUP FINAL: 22 entries across 19 compositions after cross-composition dedup
+2026-05-26 20:13:38 [INFO ] pydefect_complex.cli: ENTRIES: 22 generated, 22 after dedup, 0 new, 22 skipped (already exist)
+2026-05-26 20:13:39 [INFO ] pydefect_complex.io: SUMMARY: wrote defect_summary.txt (22 entries, 19 compositions)
+2026-05-26 20:13:39 [INFO ] pydefect_complex.cli: OUTPUT: defect/complex_defect_in.yaml (53 total, 0 new, 53 kept)
+2026-05-26 20:13:39 [INFO ] pydefect_complex.maker: CACHE: saved 5 geometries to defect/geometries_N2.yaml
+2026-05-26 20:13:39 [INFO ] pydefect_complex.cli: CACHE: N=2 5 geometries 55 orientations
+2026-05-26 21:42:51 [INFO ] pydefect_complex.cli: COMMAND: pydefect_complex --structure
+2026-05-26 21:42:52 [INFO ] pydefect_complex.cli: SUPERCELL: /home/duguex/pydefect-complex/examples/MAO/supercell_info.json (448 atoms, space group Fd-3m)
+2026-05-26 21:42:52 [INFO ] pydefect_complex.cli: ARGS: n_body=2 dopants=(intrinsic) max_distance=3.0 min_distance=0.30 charges=[0]
+2026-05-26 21:42:52 [INFO ] pydefect_complex.cli: DEFECTS: 7 types: ['Va_Mg1', 'Va_O1', 'Va_Al1', 'O_Al1', 'Al_O1', 'Al_Mg1', 'Mg_Al1']
+2026-05-26 21:42:52 [INFO ] pydefect_complex.cli: EXISTING: 6 entries in defect/complex_defect_in.yaml (skip)
+2026-05-26 21:42:52 [INFO ] pydefect_complex.maker: CACHE HIT: N=2 (5 geometries) from defect/geometries_N2.yaml (max_distance=3.0, min_distance=0.30)
+2026-05-26 21:42:52 [INFO ] pydefect_complex.cli: GEOMETRY: N=2..2 fully cached, no enumeration needed
+2026-05-26 21:42:52 [DEBUG] pydefect_complex.enumerate: ENUMERATE: cache hit for N_max=2 (max_cached=2)
+2026-05-26 21:42:52 [DEBUG] pydefect_complex.enumerate: ENUMERATE: cache hit for N_max=2 (max_cached=2)
+2026-05-26 21:42:52 [INFO ] pydefect_complex.enumerate: COMPOSITIONS: 22 (geometry, composition) pairs from 5 geometries and 7 single-defect types across 1 orders
+2026-05-26 21:42:52 [INFO ] pydefect_complex.enumerate: ENTRIES N=2: 22 entries from 5 geometries and 22 composition pairs
+2026-05-26 21:42:52 [INFO ] pydefect_complex.symmetry: DEDUP: 22 entries → 5 geometric clusters (77.3% reduction)
+2026-05-26 21:42:52 [INFO ] pydefect_complex.symmetry: DEDUP FINAL: 22 entries across 19 compositions after cross-composition dedup
+2026-05-26 21:42:52 [INFO ] pydefect_complex.cli: ENTRIES: 22 generated, 22 after dedup, 20 new, 2 skipped (already exist)
+2026-05-26 21:42:54 [INFO ] pydefect_complex.io: OUTPUT: wrote 20 entries (1 charge states each) to defect
+2026-05-26 21:42:56 [INFO ] pydefect_complex.io: SUMMARY: wrote defect_summary.txt (22 entries, 19 compositions)
+2026-05-26 21:42:56 [INFO ] pydefect_complex.cli: OUTPUT: defect/complex_defect_in.yaml (26 total, 20 new, 6 kept)
+2026-05-26 21:42:56 [INFO ] pydefect_complex.maker: CACHE: saved 5 geometries to defect/geometries_N2.yaml
+2026-05-26 21:42:56 [INFO ] pydefect_complex.cli: CACHE: N=2 5 geometries 55 orientations

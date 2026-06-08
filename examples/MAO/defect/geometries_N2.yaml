@@ -1,0 +1,55 @@
+max_distance: 3.0
+min_distance: 0.3
+order: 2
+n_geometries: 5
+geometries:
+- host_node_ids: [0, 248]
+  wyckoffs: [Mg1, O1]
+  elements: [Mg, O]
+  edges:
+  - - 0
+    - 1
+    - [-1.1227529642572551, 1.122752964257257, 1.122752964257257]
+  n_orientations: 6
+  point_group: Oh
+  fingerprint: [1.94]
+- host_node_ids: [64, 96]
+  wyckoffs: [Al1, Al1]
+  elements: [Al, Al]
+  edges:
+  - - 0
+    - 1
+    - [0.0, -2.02644205625, -2.02644205625]
+  n_orientations: 12
+  point_group: D*h
+  fingerprint: [2.87]
+- host_node_ids: [64, 216]
+  wyckoffs: [Al1, O1]
+  elements: [Al, O]
+  edges:
+  - - 0
+    - 1
+    - [-1.9169101201177432, 0.10953193613225513, 0.10953193613225513]
+  n_orientations: 13
+  point_group: D*h
+  fingerprint: [1.92]
+- host_node_ids: [192, 234]
+  wyckoffs: [O1, O1]
+  elements: [O, O]
+  edges:
+  - - 0
+    - 1
+    - [-0.21906387226451207, -2.0264420562499983, 2.0264420562499983]
+  n_orientations: 14
+  point_group: D*h
+  fingerprint: [2.87]
+- host_node_ids: [192, 320]
+  wyckoffs: [O1, O1]
+  elements: [O, O]
+  edges:
+  - - 0
+    - 1
+    - [1.807378183985489, 1.807378183985489, 0.0]
+  n_orientations: 10
+  point_group: D4h
+  fingerprint: [2.56]

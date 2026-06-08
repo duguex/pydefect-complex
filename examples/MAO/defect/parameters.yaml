@@ -1,0 +1,13 @@
+pydefect_complex_version: 0.1.0
+timestamp: '2026-05-26T21:42:56.394761'
+parameters:
+  max_distance_angstrom: 3.0
+  min_distance_angstrom: 0.3
+  dopants: []
+  charges: [0]
+  defect_names: [Va_Mg1, Va_O1, Va_Al1, O_Al1, Al_O1, Al_Mg1, Mg_Al1]
+enumerator:
+  n_geometries_cached: {'2': 5}
+entry_cache:
+  orders_cached: []
+  n_entries: {}
