@@ -6,6 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 pydefect-complex — systematic complex (multi-component) defect generation for [pydefect](https://github.com/kumagai-group/pydefect). Generates N-body defect clusters (vacancy pairs, vacancy+dopant complexes, co-doping) with symmetry-aware site enumeration and distance filtering. Output is pydefect-compatible.
 
+**Scope (in):** geometry enumeration (Apriori + Kabsch dedup), wyckoff-based composition assignment, structure generation for vacancies/substitutions/interstitials, cross-composition deduplication, orientation counting via spglib, pydefect-compatible file output.
+
+**Scope (out):** DFT calculations, charge-state estimation (always defaults to `[0]`), structure relaxation, formation-energy correction, non-VASP DFT code support. Charge states are an *input* (`--charges`), never a *product*.
+
+**Ecosystem position:** reads `supercell_info.json` from upstream pydefect; writes `complex_defect_in.yaml` + per-defect POSCAR dirs to be consumed by downstream pydefect (`efnv`/`des`/`pe`) or vise. See README.md "Related projects" for parallel tools (pymatgen-analysis-defects, doped, PyCD) and how to pick between them.
+
 ## Build & Test
 
 ```bash

@@ -4,6 +4,19 @@ Systematic complex (multi-component) defect generation compatible with [pydefect
 
 Generates N-body defect clusters — vacancy pairs, vacancy+dopant complexes, co-doping — with symmetry-aware site enumeration and distance filtering.
 
+## When to use this
+
+`pydefect-complex` is the right tool when you need to enumerate **multi-component (N≥2) defects** in a supercell and want them output in a form that drops straight into the standard pydefect pipeline (`efnv` → `des` → `pe`).
+
+| Use this when | Don't use this when |
+|---|---|
+| You need vacancy pairs, vacancy+dopant pairs, or N+B co-doping | You only need single-point defects — use `pydefect` directly |
+| Your supercell is 50–300 atoms (typical 2×2×2 to 4×4×4 of a small cell) | Your cell is >500 atoms — enumeration time scales with neighbor count |
+| N ≤ 4 (pairs, trimers, quadrimers) is the relevant regime | N ≥ 5 — combinatorial explosion, requires AI-guided search |
+| You have a target charge-state list and need it stamped on every entry | You need charge-state *estimation* — pydefect-complex only assigns; you supply `--charges` |
+| You have cubic / hexagonal / orthorhombic / monoclinic lattice symmetry | Your material is amorphous or highly disordered — geometric equivalence is ill-defined |
+| You want VASP POSCARs (with `prior_info.yaml` + `defect_entry.json`) | You use a different DFT code (QE, CP2K, …) — output is VASP-specific |
+
 ## Quick start (CLI)
 
 ```bash
@@ -138,6 +151,32 @@ Key design: **geometry is decoupled from chemistry**. `ComplexDefectGraph` nodes
 carry only (wyckoff, element) labels — defect compositions are assigned after
 geometry enumeration by wyckoff label matching. Geometry cache is persisted
 across process boundaries, so changing dopants reuses the same geometry skeleton.
+
+## Related projects
+
+`pydefect-complex` sits in a small ecosystem of defect-simulation tools.
+Knowing what's upstream, downstream, and parallel helps you pick the right
+piece for each stage.
+
+**Upstream (this project reads):**
+- [pydefect](https://github.com/kumagai-group/pydefect) — `supercell_info.json` (POSCAR + sites + space group), `SimpleDefect` definitions, `DefectSetMaker` for the canonical single-defect list.
+- [pymatgen](https://pymatgen.org) — `Structure` / `Lattice` / `PointGroupAnalyzer` (point-group classification via pymatgen, not spglib directly).
+- [spglib](https://spglib.github.io/spglib/) — `get_symmetry` for space-group rotations used in orientation counting.
+- [scipy](https://scipy.org) — `KDTree` for coordinate lookup.
+
+**Downstream (this project writes):**
+- [pydefect](https://github.com/kumagai-group/pydefect) again — `complex_defect_in.yaml` is consumed by `pydefect efnv` (formation energy with corrections), `pydefect des` (defect structure analysis), and `pydefect pe` (phase diagram).
+- [vise](https://github.com/kumagai-group/vise) — the GUI / workflow layer above pydefect; also reads `complex_defect_in.yaml`.
+
+**Parallel / alternative tools** (different inputs, may suit different needs):
+- [pymatgen-analysis-defects](https://github.com/materialsproject/pymatgen-analysis-defects) — official pymatgen extension, focuses on single-point defects; integrates with the Materials Project API for charge corrections.
+- [doped](https://github.com/SMTG-UCL/doped) (SMTG-UCL) — auto charge-state estimation and thermodynamic analysis. If you need pydefect to *guess* sensible charge states, `doped` can supply them as the `--charges` argument here.
+- [PyCD](https://github.com/WMD-group/PyCD) — another complex-defect generator with different enumeration strategy (genetic algorithm); useful for N≥4.
+
+When choosing between these, the main axis is **what the input is**: if you
+already run pydefect's `supercell` command, stay in this ecosystem and use
+`pydefect-complex`. If you start from a Materials Project ID, look at
+`pymatgen-analysis-defects` or `doped`.
 
 ## Install
 
