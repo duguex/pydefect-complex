@@ -182,3 +182,61 @@ class TestEnumerator:
         maker.make_all_n_body(n=3)
         t1 = time.time()
         assert t1 - t0 < 20.0, f"N=3 took {t1 - t0:.2f}s"
+
+    @pytest.mark.slow
+    def test_performance_n4(self, diamond_supercell_info):
+        """N=4 enumeration completes in under 300 seconds.
+
+        N=4 quadruples on a 128-atom diamond cell is the upper end of
+        what's tractable. The 300s budget accommodates CI environments
+        where this test contends for CPU with other tests in the suite
+        (e.g., the parallel-execution tests). The budget mainly catches
+        catastrophic regressions (e.g., dedup becoming O(n^4) instead
+        of O(n^2)); on a quiet 4-core machine this runs in ~80s.
+
+        Skip with: ``pytest -m "not slow"``.
+        """
+        maker = ComplexDefectMaker(
+            diamond_supercell_info, dopants=["N", "B"], max_distance=4.0,
+        )
+        t0 = time.time()
+        geo = maker.enumerate_geometries(N_max=4)
+        t1 = time.time()
+        assert 4 in geo, "N=4 geometry enumeration returned no result"
+        assert t1 - t0 < 300.0, f"N=4 took {t1 - t0:.2f}s"
+
+
+class TestParallelExecution:
+    """Smoke tests for the parallel-execution paths.
+
+    The maker's ``n_workers`` flag gates two dispatch points:
+      - ``ComplexDefectEnumerator._extend_order`` (geometry)
+      - ``generate_all_entries`` (structure generation)
+    These tests verify parallel runs don't corrupt the output.
+    """
+
+    def test_parallel_n_workers_2_matches_serial(self, diamond_supercell_info):
+        """n_workers=2 should produce the same set of entries as n_workers=1."""
+        serial = ComplexDefectMaker(
+            diamond_supercell_info, dopants=["N"], max_distance=4.0, n_workers=1,
+        )
+        serial.make_all_n_body(n=3)
+        serial_entries = serial.generate_entries(n_or_geometries=3)
+
+        parallel = ComplexDefectMaker(
+            diamond_supercell_info, dopants=["N"], max_distance=4.0, n_workers=2,
+        )
+        parallel.make_all_n_body(n=3)
+        parallel_entries = parallel.generate_entries(n_or_geometries=3)
+
+        # Compare by (name, structure formula) — structure objects may differ
+        # in memory but should be identical by content.
+        serial_keys = {(e.name, str(e.structure.composition.formula))
+                       for e in serial_entries}
+        parallel_keys = {(e.name, str(e.structure.composition.formula))
+                         for e in parallel_entries}
+        assert serial_keys == parallel_keys, (
+            f"Serial/parallel disagree: "
+            f"only_in_serial={serial_keys - parallel_keys}, "
+            f"only_in_parallel={parallel_keys - serial_keys}"
+        )

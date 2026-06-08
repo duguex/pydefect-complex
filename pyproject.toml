@@ -28,3 +28,8 @@ where = ["src"]
 
 [project.scripts]
 pydefect_complex = "pydefect_complex.cli:main"
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: long-running performance test (N=4 enumeration); skip with -m 'not slow'",
+]
