@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-cov"]
+dev = ["pytest", "pytest-cov", "hypothesis"]
 progress = ["tqdm"]
 
 [tool.setuptools.package-dir]
