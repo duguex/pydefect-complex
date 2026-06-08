@@ -102,6 +102,212 @@ class TestMakerRepr:
 
 
 # ---------------------------------------------------------------------------
+# Unit tests for specific public methods (not covered transitively)
+# ---------------------------------------------------------------------------
+
+
+class TestSetDopants:
+    def test_set_dopants_preserves_geometry_cache(
+        self, diamond_supercell_info,
+    ):
+        """Switching dopants must NOT invalidate the geometry enumeration cache.
+
+        This is the whole point of set_dopants() vs constructing a new maker.
+        """
+        from pydefect.input_maker.defect import SimpleDefect
+
+        maker = ComplexDefectMaker(
+            diamond_supercell_info, dopants=["N"], max_distance=3.5,
+        )
+        # Populate the geometry cache for N=2.
+        maker.enumerate_geometries(N_max=2)
+        assert 2 in maker.enumerator.geometries
+        geoms_before = list(maker.enumerator.geometries[2])
+
+        # Switch dopants.
+        maker.set_dopants(dopants=["N", "B"])
+
+        # Geometry cache must survive.
+        assert 2 in maker.enumerator.geometries
+        assert len(maker.enumerator.geometries[2]) == len(geoms_before)
+        # And the same objects — no re-enumeration happened.
+        assert maker.enumerator.geometries[2][0] is geoms_before[0]
+
+    def test_set_dopants_updates_defect_list(
+        self, diamond_supercell_info,
+    ):
+        """After set_dopants, single_defects reflects the new dopant set."""
+        from pydefect.input_maker.defect import SimpleDefect
+
+        maker = ComplexDefectMaker(
+            diamond_supercell_info, dopants=["N"], max_distance=3.5,
+        )
+        before_names = set(maker.defect_names)
+
+        maker.set_dopants(dopants=["N", "B"])
+        after_names = set(maker.defect_names)
+
+        # New dopant set must add at least one new defect type
+        # (the B substitution), and the previous N dopant must remain.
+        assert after_names > before_names
+        assert "N" in str(before_names) or any("N" in n for n in before_names)
+        # Entry cache must be cleared so the new chemistry is re-generated.
+        assert maker.entry_cache == {}
+
+    def test_set_dopants_to_intrinsic(self, diamond_supercell_info):
+        """set_dopants([]) should produce only intrinsic (vacancy) defects."""
+        from pydefect.input_maker.defect import SimpleDefect
+
+        maker = ComplexDefectMaker(
+            diamond_supercell_info, dopants=["N", "B"], max_distance=3.5,
+        )
+        assert any("N" in d.name or "B" in d.name for d in maker.single_defects)
+
+        maker.set_dopants(dopants=[])
+        # No dopant substitutions in the defect list anymore.
+        assert not any(
+            (d.in_atom is not None and not d.out_atom.startswith("i"))
+            for d in maker.single_defects
+        )
+
+
+class TestWriteParameters:
+    def test_write_parameters_includes_run_metadata(
+        self, diamond_supercell_info, tmp_path,
+    ):
+        from pydefect_complex.maker import ComplexDefectMaker
+        import yaml
+
+        out = tmp_path / "params"
+        out.mkdir()
+        maker = ComplexDefectMaker(
+            diamond_supercell_info, dopants=["N", "B"], max_distance=4.0,
+            charges=[-1, 0, 1],
+        )
+        maker.make_all_pairs()  # populate entry_cache
+        maker._write_parameters(str(out))
+
+        path = out / "parameters.yaml"
+        assert path.is_file()
+        data = yaml.safe_load(path.read_text())
+        assert data["pydefect_complex_version"]  # not empty
+        assert "timestamp" in data
+        assert data["parameters"]["max_distance_angstrom"] == 4.0
+        assert data["parameters"]["dopants"] == ["N", "B"]
+        assert data["parameters"]["charges"] == [-1, 0, 1]
+        # Caches should be reflected.
+        assert "2" in data["enumerator"]["n_geometries_cached"]
+        assert data["entry_cache"]["orders_cached"] == [2]
+
+
+class TestGeometryCacheRoundTrip:
+    def test_save_then_load_round_trips_geometries(
+        self, diamond_supercell_info, tmp_path,
+    ):
+        """Save → wipe enumerator cache → load must restore the same geometries."""
+        from pydefect_complex.maker import ComplexDefectMaker
+
+        out = tmp_path / "cache"
+        out.mkdir()
+
+        # First maker: enumerate and save.
+        m1 = ComplexDefectMaker(
+            diamond_supercell_info, dopants=["N", "B"], max_distance=4.0,
+        )
+        m1.enumerate_geometries(N_max=3)
+        geoms_before = {
+            n: [g.to_dict() for g in gs]
+            for n, gs in m1.enumerator.geometries.items()
+        }
+        m1.save_geometry_cache(str(out))
+
+        # Second maker: identical parameters, load from cache.
+        m2 = ComplexDefectMaker(
+            diamond_supercell_info, dopants=["N", "B"], max_distance=4.0,
+        )
+        loaded_orders = m2.load_geometry_cache(str(out))
+        assert loaded_orders == {2, 3}
+
+        # Compare the dict-form of every geometry — identity may differ
+        # but content must match.
+        for n, before_list in geoms_before.items():
+            after_list = [g.to_dict() for g in m2.enumerator.geometries[n]]
+            assert before_list == after_list
+
+    def test_load_geometry_cache_skips_mismatched_max_distance(
+        self, diamond_supercell_info, tmp_path,
+    ):
+        """Cache file with different max_distance must NOT be loaded."""
+        from pydefect_complex.maker import ComplexDefectMaker
+
+        out = tmp_path / "cache"
+        out.mkdir()
+
+        # Save with max_distance=4.0.
+        m1 = ComplexDefectMaker(
+            diamond_supercell_info, dopants=["N"], max_distance=4.0,
+        )
+        m1.enumerate_geometries(N_max=2)
+        m1.save_geometry_cache(str(out))
+
+        # Try to load with max_distance=3.0 (mismatch).
+        m2 = ComplexDefectMaker(
+            diamond_supercell_info, dopants=["N"], max_distance=3.0,
+        )
+        loaded = m2.load_geometry_cache(str(out))
+        assert loaded == set(), "Mismatched cache should be skipped entirely"
+
+    def test_load_geometry_cache_returns_empty_for_missing_dir(
+        self, diamond_supercell_info, tmp_path,
+    ):
+        from pydefect_complex.maker import ComplexDefectMaker
+
+        m = ComplexDefectMaker(diamond_supercell_info, max_distance=3.0)
+        # Point at a directory that doesn't exist.
+        assert m.load_geometry_cache(str(tmp_path / "nope")) == set()
+
+
+class TestGenerateEntriesChargesOverride:
+    def test_charges_at_construction_propagates_to_entries(
+        self, diamond_supercell_info,
+    ):
+        """Charges passed to ComplexDefectMaker(charges=...) must flow through.
+
+        This is the supported way to set charge states — it ensures the
+        entry cache is populated with the desired charges on the first
+        enumeration call.
+        """
+        from pydefect_complex.maker import ComplexDefectMaker
+
+        maker = ComplexDefectMaker(
+            diamond_supercell_info, dopants=["N", "B"], max_distance=4.0,
+            charges=[-2, -1, 0, 1, 2],
+        )
+        maker.make_all_pairs()
+        entries = maker.generate_entries(n_or_geometries=2)
+        assert len(entries) > 0
+        for e in entries:
+            assert e.complex_defect.charges == [-2, -1, 0, 1, 2], (
+                f"Expected constructor charges; got {e.complex_defect.charges}"
+            )
+
+    def test_charges_none_uses_maker_default(
+        self, diamond_supercell_info,
+    ):
+        """When no charges constructor arg, default [0] is used."""
+        from pydefect_complex.maker import ComplexDefectMaker
+
+        maker = ComplexDefectMaker(
+            diamond_supercell_info, dopants=["N", "B"], max_distance=4.0,
+        )
+        maker.make_all_pairs()
+        entries = maker.generate_entries(n_or_geometries=2)
+        assert len(entries) > 0
+        for e in entries:
+            assert e.complex_defect.charges == [0]
+
+
+# ---------------------------------------------------------------------------
 # PLAN-C: ComplexDefectEnumerator + N-body tests
 # ---------------------------------------------------------------------------
 
