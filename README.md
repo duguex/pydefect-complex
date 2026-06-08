@@ -125,14 +125,19 @@ geometries (only entry generation is re-run).
 
 ## Pipeline
 
-```
-POSCAR → pydefect (supercell_info.json) → pydefect-complex → pydefect (efnv/des/pe)
-```
+End-to-end flow from a primitive POSCAR to VASP-ready complex defect inputs:
 
-1. Run pydefect's ``supercell`` command to get ``supercell_info.json``
-2. Run ``pydefect_complex`` to generate complex defect registry
-3. (Optional) Run ``pydefect_complex --structures`` to generate VASP POSCAR files
-4. Continue with standard pydefect VASP workflow
+1. **Input (`supercell_info.json`).** Run `pydefect supercell -p POSCAR --matrix 3 3 3` (or similar) to produce the supercell metadata file. This carries the structure, the symmetry-derived site labels, and the space-group information.
+2. **Host graph construction (`graph.py`).** The pristine supercell is unfolded into a `HostGraph`: every atom becomes a node labeled by `(wyckoff, element)` with fractional coordinates; the lattice matrix is carried for PBC-aware min-image distance computation.
+3. **Geometry enumeration (`enumerate.py:ComplexDefectEnumerator`).** Apriori-style incremental enumeration produces all geometrically unique N-node site configurations — first N=2 (anchor + neighbor pairs), then extended by external neighbors up to the requested `N_max`. Online Kabsch-based dedup keeps only one representative per equivalence class; results are cached to `defect/geometries_N*.yaml` for cross-process reuse.
+4. **Composition assignment (`enumerate.py:assign_compositions`).** Each geometry is matched against the user's `SimpleDefect` list by comparing the wyckoff multiset of the geometry to the `out_atom` multiset of the defect combination. Filter rules: at most one interstitial, and only in the first layer.
+5. **Structure generation (`enumerate.py:_generate_structure`).** For each (geometry, composition) pair, the actual `IStructure` is built: vacancies pop the nearest host atom, substitutions swap the host element for the dopant, interstitials insert the dopant at the wyckoff coordinate. Failures (e.g. element mismatch) are silently skipped.
+6. **Cross-composition deduplication (`symmetry.py:deduplicate`).** All entries from step 5 are clustered by geometric equivalence *across compositions* — a vacancy pair and a vacancy+dopant pair on the same sites are recognized as the same geometry. Each surviving cluster gets a `.001`, `.002`, … index per composition.
+7. **Orientation counting (`structure.py:_count_orientations_from_coords`).** Each unique geometry is rotated through the pristine crystal's space-group operations, mapped back to host atoms via KDTree, and the number of distinct embeddings is recorded. Used in `defect_summary.txt` and the registry metadata.
+8. **Output (`io.py`).** Writes `defect/complex_defect_in.yaml` (the registry), `defect_summary.txt` (human-readable), `defect/parameters.yaml` (run metadata), and — with `--structures` — one `defect/{name}_{charge}/POSCAR` + `prior_info.yaml` + `defect_entry.json` per entry. Files are merged across runs, not overwritten.
+9. **Downstream (`pydefect efnv` → `des` → `pe`).** The registry and POSCARs feed straight into pydefect's VASP post-processing: formation energies with finite-size corrections, defect structure analysis, and phase-diagram construction.
+
+The geometry cache (step 3) and the entry cache (step 6) are persisted across runs, so changing dopants re-uses prior geometry enumeration — only steps 4-7 re-run.
 
 ## Architecture
 
