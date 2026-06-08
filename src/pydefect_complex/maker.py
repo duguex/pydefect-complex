@@ -30,11 +30,10 @@ from .structure import ComplexDefectEntry
 from .graph import HostGraph, ComplexDefectGraph
 from .enumerate import (
     ComplexDefectEnumerator,
-    assign_compositions,
     generate_all_entries,
 )
 from .symmetry import deduplicate, verify_dedup
-from .io import write_all, write_complex_defect_in_yaml, merge_defect_in, write_summary
+from .io import _write_all, write_complex_defect_in_yaml, merge_defect_in, write_summary
 from .log import get_logger
 from .tracker import PipelineTracker
 
@@ -187,13 +186,20 @@ class ComplexDefectMaker:
 
     def enumerate_geometries(
         self, N_max: int, eps: float = 0.1,
+        progress_callback=None,
     ) -> dict[int, list[ComplexDefectGraph]]:
         """Enumerate geometrically unique N-node subgraphs.
 
         Returns {2: [G, ...], 3: [G, ...], ..., N_max: [...]}.
         Cached — repeated calls with higher N_max reuse prior results.
+
+        Args:
+            N_max: Highest order to enumerate.
+            eps: Geometric equivalence tolerance (Å).
+            progress_callback: Optional ``callable(current, total)`` invoked
+                after each order completes.
         """
-        return self.enumerator.enumerate(N_max, eps)
+        return self.enumerator.enumerate(N_max, eps, progress_callback=progress_callback)
 
     # --- Geometry enumeration (default: no chemistry) ---
 
@@ -265,7 +271,11 @@ class ComplexDefectMaker:
             charges: Charge states for all generated entries.
                      None uses maker default (neutral only).
 
-        Returns list[ComplexDefectEntry].
+        Returns list[ComplexDefectEntry]. Apply physical filters (C1,
+        max-dopant count) via ``Maker.filter_entries()`` after this call
+        to avoid breaking parallel-vs-serial determinism — filtering at
+        this layer can read lazy symmetry fields whose values depend on
+        which process computed them.
         """
         if dopants is not None:
             self.set_dopants(dopants)
@@ -321,10 +331,15 @@ class ComplexDefectMaker:
             self.enumerator.enumerate(n)
 
         _charges = charges if charges is not None else self._charges
+        # Dedup is kept in Maker (not generate_all_entries) because the
+        # parallel-vs-serial determinism test relies on the maker's
+        # tracker for ordering. The `deduplicate` kwarg in
+        # generate_all_entries is unused here.
         entries = generate_all_entries(
             self.enumerator, self.supercell_info,
             self._single_defects, N_max=n,
             charges=_charges,
+            deduplicate=False,  # we do it here, with tracker
         )
 
         logger.info("Total entries before dedup: %d", len(entries))
@@ -337,6 +352,14 @@ class ComplexDefectMaker:
             if self._tracker.enabled:
                 report = verify_dedup(entries, self.host_graph)
                 self._tracker.write_dedup_verification(report)
+
+        # NOTE: physical filters (C1, max-dopant) are NOT applied here.
+        # They read lazy spglib fields that can be non-deterministic
+        # across pickling / worker processes, which breaks the
+        # parallel-vs-serial entry-set equivalence test. Use
+        # ``Maker.filter_entries()`` after ``generate_entries()`` for
+        # physical filtering; the result is identical regardless of
+        # serial/parallel generation.
 
         # Populate entry cache — split deduplicated entries by n_defects
         for order, order_entries in _group_by_n_defects(entries).items():
@@ -392,6 +415,53 @@ class ComplexDefectMaker:
 
     def make_pair(self, d1, d2, max_distance=None, min_distance=None):
         return self.make_complex([d1, d2], max_distance, min_distance)
+
+    @staticmethod
+    def filter_entries(
+        entries: list[ComplexDefectEntry],
+        exclude_point_groups: tuple[str, ...] = ("C1",),
+        max_dopant_atoms: int | None = 2,
+    ) -> list[ComplexDefectEntry]:
+        """Apply the standard physical filters to a list of entries.
+
+        Excludes entries whose point group is in ``exclude_point_groups``
+        (default: drop the trivial C1 group) and entries with more than
+        ``max_dopant_atoms`` dopant components (default: 2).
+
+        Deliberately a *static* method, not a step in ``generate_entries``:
+        reading ``entry.point_group`` triggers a lazy spglib call whose
+        output can be non-deterministic across worker processes (and
+        thus break the parallel-vs-serial determinism test). Callers
+        who want this filter should invoke it once, in the main process,
+        after all entries are collected:
+
+            entries = maker.generate_entries(n_or_geometries=N)
+            entries = ComplexDefectMaker.filter_entries(entries)
+
+        Args:
+            entries: List of ComplexDefectEntry to filter.
+            exclude_point_groups: Point groups to exclude. Empty tuple
+                disables this filter.
+            max_dopant_atoms: Max dopant atoms per entry. None disables.
+
+        Returns:
+            Filtered list (preserves input order).
+        """
+        before = len(entries)
+        if exclude_point_groups:
+            entries = [e for e in entries
+                       if not e.point_group or e.point_group not in exclude_point_groups]
+        if max_dopant_atoms is not None:
+            entries = [
+                e for e in entries
+                if sum(1 for a in e.complex_defect.in_elements if a) <= max_dopant_atoms
+            ]
+        if (before := before) and len(entries) != before:
+            logger.info(
+                "FILTER: %d -> %d entries (C1=%s, max_dopant_atoms=%s)",
+                before, len(entries), exclude_point_groups, max_dopant_atoms,
+            )
+        return entries
 
     def show_geometries(self, N_max: int = 2):
         """Log a human-readable geometry summary (no chemistry)."""
@@ -473,14 +543,24 @@ class ComplexDefectMaker:
     # --- Output ---
 
     def write(self, entries, output_dir=".", merge=False) -> str:
-        complex_defect_in = write_all(entries, output_dir, create_defect_json=True)
-        yaml_path = write_complex_defect_in_yaml(complex_defect_in, output_dir)
-        summary_path = write_summary(entries, output_dir)
+        # Absolute path: warn if relative (catches the cwd-confusion bug)
+        out_path = Path(output_dir)
+        if not out_path.is_absolute():
+            logger.warning(
+                "Maker.write: output_dir=%r is relative; resolving to %s. "
+                "Pass an absolute path to avoid cwd-dependence.",
+                output_dir, out_path.resolve(),
+            )
+            out_path = out_path.resolve()
+        out_str = str(out_path)
+        complex_defect_in = _write_all(entries, out_str, create_defect_json=True)
+        yaml_path = write_complex_defect_in_yaml(complex_defect_in, out_str)
+        summary_path = write_summary(entries, out_str)
         logger.info("Summary written to %s", summary_path)
-        self._write_parameters(output_dir)
+        self._write_parameters(out_str)
         logger.info("Parameters written to %s/parameters.yaml", output_dir)
         if merge:
-            merge_defect_in(output_dir)
+            merge_defect_in(out_str)
         return yaml_path
 
     def _write_parameters(self, output_dir: str):

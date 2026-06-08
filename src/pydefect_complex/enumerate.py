@@ -79,12 +79,18 @@ class ComplexDefectEnumerator:
 
     def enumerate(
         self, N_max: int, eps: float = 0.1,
+        progress_callback=None,
     ) -> dict[int, list[ComplexDefectGraph]]:
         """Enumerate all geometrically unique N-node subgraphs for orders 2..N_max.
 
         Args:
             N_max: Maximum number of nodes (>= 2).
             eps: Geometric equivalence tolerance (Å).
+            progress_callback: Optional ``callable(current, total)`` invoked
+                after each order is enumerated. ``current`` is the order
+                just completed (2..N_max), ``total`` is N_max. Useful for
+                embedding progress into a UI / log without depending on
+                tqdm.
 
         Returns:
             {2: [ComplexDefectGraph, ...], 3: [...], ..., N_max: [...]}
@@ -105,6 +111,8 @@ class ComplexDefectEnumerator:
         if 2 not in self._cache:
             self._cache[2] = self._enumerate_2(eps)
             self._compute_orientations(self._cache[2])
+            if progress_callback is not None:
+                progress_callback(2, N_max)
 
         # Apriori: k → k+1
         start_k = max(2, max_cached)
@@ -119,6 +127,8 @@ class ComplexDefectEnumerator:
             if k + 1 not in self._cache:
                 self._cache[k + 1] = self._extend_order(k, eps)
                 self._compute_orientations(self._cache[k + 1])
+                if progress_callback is not None:
+                    progress_callback(k + 1, N_max)
 
         return {k: v for k, v in self._cache.items() if k <= N_max}
 
@@ -484,11 +494,11 @@ def _generate_entries_parallel(
 # ---------------------------------------------------------------------------
 
 
-def assign_compositions(
+def _assign_compositions(
     geometries: list[ComplexDefectGraph],
     single_defects: list,
 ) -> list[tuple[ComplexDefectGraph, "ComplexDefect"]]:
-    """Match geometries to compatible defect compositions by wyckoff label.
+    """Internal: match geometries to compatible defect compositions by wyckoff label.
 
     For each geometry G, generates all N-defect combinations whose
     out_atom multiset matches G's wyckoff multiset, then pairs them.
@@ -545,6 +555,18 @@ def assign_compositions(
     return results
 
 
+# ---- Backward-compat shim (deprecated, will be removed in v1.0) ----
+
+def assign_compositions(*args, **kwargs):  # pragma: no cover
+    import warnings
+    warnings.warn(
+        "enumerate.assign_compositions is deprecated; use ComplexDefectMaker "
+        "or enumerate._assign_compositions (private). Will be removed in v1.0.",
+        DeprecationWarning, stacklevel=2,
+    )
+    return _assign_compositions(*args, **kwargs)
+
+
 def generate_all_entries(
     enumerator: "ComplexDefectEnumerator",
     supercell_info: "SupercellInfo",
@@ -553,6 +575,8 @@ def generate_all_entries(
     eps: float = 0.1,
     orders: set[int] | None = None,
     charges: list[int] | None = None,
+    host_graph: HostGraph | None = None,
+    deduplicate: bool = True,
 ) -> list["ComplexDefectEntry"]:
     """Full pipeline: enumerate geometries, assign compositions, generate structures.
 
@@ -566,9 +590,14 @@ def generate_all_entries(
                 None means all orders 2..N_max.
         charges: Charge states to assign to every generated entry.
                  None uses ComplexDefect default (neutral only).
+        host_graph: Host graph for symmetry dedup. Defaults to
+                    ``enumerator.host_graph`` if not given.
+        deduplicate: If True (default), run cross-composition symmetry
+                     dedup. Disable only for testing the un-deduped
+                     pipeline or when you have a custom dedup step.
 
     Returns:
-        List of ComplexDefectEntry objects ready for writing.
+        List of deduplicated ComplexDefectEntry objects ready for writing.
     """
     from .structure import ComplexDefectEntry
     import numpy as np
@@ -583,7 +612,7 @@ def generate_all_entries(
             continue
         n_before = len(entries)
         n_pairs = 0
-        pairs = assign_compositions(geoms, single_defects)
+        pairs = _assign_compositions(geoms, single_defects)
         n_pairs = len(pairs)
         n_workers = enumerator.n_workers
         if n_workers > 1 and len(pairs) >= n_workers:
@@ -636,6 +665,13 @@ def generate_all_entries(
             "ENTRIES N=%d: %d entries from %d geometries and %d composition pairs",
             n, len(entries) - n_before, len(geoms), n_pairs,
         )
+
+    if deduplicate and entries:
+        hg = host_graph if host_graph is not None else enumerator.host_graph
+        from .symmetry import deduplicate as _deduplicate
+        before = len(entries)
+        entries = _deduplicate(entries, hg, enumerator.max_distance)
+        logger.info("DEDUP: %d -> %d entries", before, len(entries))
 
     return entries
 
@@ -708,17 +744,9 @@ def _generate_structure(
     return to_istructure(structure)
 
 
-def generate_structure(
-    host_graph: HostGraph,
-    supercell_info: "SupercellInfo",
-    graph: ComplexDefectGraph,
-    complex_defect: ComplexDefect,
-) -> "IStructure":
-    """Generate defect structure from a geometry graph + defect composition.
-
-    Applies each SimpleDefect at its corresponding host node position.
-    """
-    return _generate_structure(
-        host_graph, supercell_info.structure, supercell_info.sites,
-        graph, complex_defect,
-    )
+# The internal `_generate_structure` (line 648) takes raw structure + sites.
+# The public wrapper has been removed; callers should go through
+# `ComplexDefectMaker.make_all_n_body` or `generate_entries` which
+# assemble the full `ComplexDefectEntry` correctly (with distances,
+# site_path, defect_coords). Bare structure generation without those
+# fields produces entries that fail pydefect's efnv/des downstream.

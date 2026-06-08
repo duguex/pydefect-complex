@@ -206,48 +206,36 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     # ==========================================================
-    # 7. Generate entries (geometries + compositions + structures)
+    # 7. Generate entries via Maker API (dedup happens internally)
     # ==========================================================
-    from .enumerate import generate_all_entries
-    from .symmetry import deduplicate
-    from .io import write_all, write_complex_defect_in_yaml, write_summary
-
-    all_entries = generate_all_entries(
-        maker.enumerator, supercell_info,
-        maker.single_defects, N_max=n,
-        charges=args.charges,
+    final_entries = maker.generate_entries(
+        n_or_geometries=n, charges=args.charges,
     )
 
     # ==========================================================
-    # 8. Deduplication
-    # ==========================================================
-    final_entries = deduplicate(
-        all_entries, maker.host_graph, args.max_distance,
-    )
-
-    # ==========================================================
-    # 9. Filter new entries
+    # 8. Filter new entries (only those not already on disk)
     # ==========================================================
     new_entries = [e for e in final_entries if e.name not in existing_names]
     kept = len(existing_names)
     skipped = len(final_entries) - len(new_entries)
-    logger.info("ENTRIES: %d generated, %d after dedup, %d new, %d skipped (already exist)",
-                len(all_entries), len(final_entries), len(new_entries), skipped)
+    logger.info("ENTRIES: %d after dedup, %d new, %d skipped (already exist)",
+                len(final_entries), len(new_entries), skipped)
 
     if not new_entries and not existing_names:
         logger.warning("EMPTY: no entries generated — check supercell_info.json and dopants")
         return
 
     # ==========================================================
-    # 10. Write output
+    # 9. Write output (Maker.write handles dedup-aware file I/O)
     # ==========================================================
-    defect_dir = Path("defect")
+    defect_dir = Path("defect").resolve()
     defect_dir.mkdir(parents=True, exist_ok=True)
 
     if new_entries and args.structures:
-        complex_defect_in_new = write_all(
-            new_entries, str(defect_dir), create_defect_json=True,
-        )
+        maker.write(new_entries, str(defect_dir), merge=False)
+        complex_defect_in_new = {
+            e.name: e.complex_defect.charges for e in new_entries
+        }
     elif new_entries:
         complex_defect_in_new = {
             e.name: e.complex_defect.charges for e in new_entries
@@ -255,6 +243,7 @@ def main(argv: list[str] | None = None) -> None:
     else:
         complex_defect_in_new = {}
 
+    from .io import write_summary, write_complex_defect_in_yaml
     write_summary(final_entries, str(defect_dir))
     maker._write_parameters(str(defect_dir))
 

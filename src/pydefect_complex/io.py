@@ -24,13 +24,13 @@ if TYPE_CHECKING:
     from .core import ComplexDefect
 
 
-def write_entry(
+def _write_entry(
     entry: "ComplexDefectEntry",
     output_dir: str,
     charge: int,
     create_defect_json: bool = False,
 ) -> str:
-    """Write a single ComplexDefectEntry as a pydefect-compatible directory.
+    """Internal: write a single ComplexDefectEntry as a pydefect-compatible directory.
 
     Creates: {output_dir}/{name}_{charge}/
                POSCAR
@@ -57,19 +57,24 @@ def write_entry(
     return str(abs_path)
 
 
-def write_all(
+def _write_all(
     entries: list["ComplexDefectEntry"],
     output_dir: str,
     perfect_poscar_path: Optional[str] = None,
     create_defect_json: bool = True,
 ) -> dict[str, list[int]]:
-    """Write all complex defect entries to a pydefect-compatible directory.
+    """Internal: write all complex defect entries to a pydefect-compatible directory.
+
+    Assumes entries are already deduplicated and filtered (i.e. produced by
+    ``ComplexDefectMaker.generate_entries``). For pre-dedup or arbitrary
+    entries, dedup must be done by the caller — this function will otherwise
+    happily write two entries with the same name into the same directory,
+    with the second overwriting the first's POSCAR.
 
     Args:
-        entries: List of ComplexDefectEntry to write.
+        entries: List of deduplicated ComplexDefectEntry to write.
         output_dir: Target directory (typically 'defect/').
-        perfect_poscar_path: Path to perfect supercell POSCAR for
-            defect_entry.json generation.
+        perfect_poscar_path: Unused; kept for API backward compatibility.
         create_defect_json: Whether to generate defect_entry.json files.
 
     Returns:
@@ -84,7 +89,7 @@ def write_all(
         complex_defect_in[defect_name] = cd.charges
 
         for charge in cd.charges:
-            write_entry(entry, output_dir, charge, create_defect_json)
+            _write_entry(entry, output_dir, charge, create_defect_json)
 
     n_charges = max(len(e.complex_defect.charges) for e in entries) if entries else 0
     logger.info(
@@ -92,6 +97,29 @@ def write_all(
         len(entries), n_charges, output_dir,
     )
     return complex_defect_in
+
+
+# ---- Backward-compat shims (deprecated, will be removed in v1.0) ----
+
+def write_entry(*args, **kwargs):  # pragma: no cover
+    import warnings
+    warnings.warn(
+        "io.write_entry is deprecated and will be removed in v1.0. "
+        "Use ComplexDefectMaker.write() instead.",
+        DeprecationWarning, stacklevel=2,
+    )
+    return _write_entry(*args, **kwargs)
+
+
+def write_all(*args, **kwargs):  # pragma: no cover
+    import warnings
+    warnings.warn(
+        "io.write_all is deprecated and will be removed in v1.0; "
+        "it accepts arbitrary entries and silently overwrites duplicates. "
+        "Use ComplexDefectMaker.write() which guarantees dedup.",
+        DeprecationWarning, stacklevel=2,
+    )
+    return _write_all(*args, **kwargs)
 
 
 def write_complex_defect_in_yaml(
