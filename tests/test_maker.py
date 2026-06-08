@@ -306,6 +306,61 @@ class TestGenerateEntriesChargesOverride:
         for e in entries:
             assert e.complex_defect.charges == [0]
 
+    def test_charges_override_stamps_on_cache_hit(
+        self, diamond_supercell_info,
+    ):
+        """generate_entries(charges=...) overrides cached charges.
+
+        Regression test: previously the entry-cache hit path returned
+        cached entries with their original charges, silently dropping
+        the override. See charges-override-cache-bug.md in memory.
+        """
+        from pydefect_complex.maker import ComplexDefectMaker
+
+        maker = ComplexDefectMaker(
+            diamond_supercell_info, dopants=["N", "B"], max_distance=4.0,
+            charges=[0],  # default at construction
+        )
+        maker.make_all_pairs()  # populates entry_cache for N=2
+
+        # Override charges AFTER the cache is populated.
+        entries = maker.generate_entries(
+            n_or_geometries=2, charges=[-2, -1, 0, 1, 2],
+        )
+        assert len(entries) > 0
+        for e in entries:
+            assert e.complex_defect.charges == [-2, -1, 0, 1, 2], (
+                f"Override charges were dropped; got {e.complex_defect.charges}"
+            )
+
+    def test_charges_override_does_not_mutate_underlying_cache(
+        self, diamond_supercell_info,
+    ):
+        """The override should not leak into the cache: a follow-up
+        call with charges=None must return entries with the original
+        constructor-level charges."""
+        from pydefect_complex.maker import ComplexDefectMaker
+
+        maker = ComplexDefectMaker(
+            diamond_supercell_info, dopants=["N", "B"], max_distance=4.0,
+            charges=[0],
+        )
+        maker.make_all_pairs()
+
+        # First call: override.
+        e1 = maker.generate_entries(
+            n_or_geometries=2, charges=[-2, -1, 0, 1, 2],
+        )
+        for e in e1:
+            assert e.complex_defect.charges == [-2, -1, 0, 1, 2]
+
+        # Second call: no override — should return [0] again.
+        e2 = maker.generate_entries(n_or_geometries=2)
+        for e in e2:
+            assert e.complex_defect.charges == [0], (
+                f"Cache was mutated by previous override; got {e.complex_defect.charges}"
+            )
+
 
 # ---------------------------------------------------------------------------
 # PLAN-C: ComplexDefectEnumerator + N-body tests

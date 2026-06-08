@@ -293,7 +293,23 @@ class ComplexDefectMaker:
                 "ENTRY CACHE HIT: returning %d entries for N=%d",
                 len(self._entry_cache[n_or_geometries]), n_or_geometries,
             )
-            return list(self._entry_cache[n_or_geometries])
+            cached = self._entry_cache[n_or_geometries]
+            # Re-stamp charges if the caller supplied a non-None override.
+            # The cache stores entries with the charges that were active at
+            # enumeration time; a later `generate_entries(charges=...)` call
+            # would otherwise be silently ignored. We shallow-copy the
+            # complex_defect so the mutation doesn't leak back into the cache.
+            if charges is None or list(charges) == list(self._charges):
+                return list(cached)
+            from copy import copy as _copy
+            out = []
+            for e in cached:
+                new_e = _copy(e)
+                new_cd = _copy(e.complex_defect)
+                new_cd.charges = list(charges)
+                new_e.complex_defect = new_cd
+                out.append(new_e)
+            return out
 
         if isinstance(n_or_geometries, int):
             n = n_or_geometries
